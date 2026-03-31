@@ -34,9 +34,9 @@ export interface SystemMetrics {
   cpuLoad: number;
   memoryUsage: number;
   uptime: string;
-  linkStatus: 'connected' | 'error' | 'connecting';
+  apiStatus: 'online' | 'offline' | 'connecting';
   lastCommand: string;
-  lastGesture: string;
+  lastEvent: string;
   neuralEngine: string;
 }
 
@@ -60,4 +60,25 @@ export interface SecurityStatus {
   doorsLocked: boolean;
   windowsClosed: boolean;
   activeAlarms: number;
+}
+
+// Backend Navigation Interfaces
+export interface BackendUIState {
+  current_screen: string;
+  selected_index: number;
+  selected_item: string;
+  items: string[];
+}
+
+export interface BackendSystemState {
+  last_event: { event_type: string; name: string; timestamp: string } | null;
+  last_intent: { intent: string; timestamp: string } | null;
+  last_command: { command: string; timestamp: string } | null;
+  device_status: { light: string; plug: string };
+}
+
+export interface BackendStatusResponse {
+  success: boolean;
+  system_state: BackendSystemState;
+  ui_state: BackendUIState;
 }

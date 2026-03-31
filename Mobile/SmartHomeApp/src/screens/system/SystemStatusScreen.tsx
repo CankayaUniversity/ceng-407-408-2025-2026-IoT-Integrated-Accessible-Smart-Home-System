@@ -30,15 +30,15 @@ export const SystemStatusScreen = () => {
           <Card style={styles.card}>
             <MetricRow 
               icon={<Network size={20} color={theme.colors.text.secondary} />} 
-              label="Link Status" 
-              value={systemMetrics.linkStatus.toUpperCase()} 
-              statusColor={systemMetrics.linkStatus === 'connected' ? theme.colors.success : theme.colors.warning} 
+              label="API Status" 
+              value={systemMetrics.apiStatus.toUpperCase()} 
+              statusColor={systemMetrics.apiStatus === 'online' ? theme.colors.success : theme.colors.warning} 
             />
             <View style={styles.divider} />
             <MetricRow 
               icon={<Activity size={20} color={theme.colors.text.secondary} />} 
-              label="Last Gesture" 
-              value={systemMetrics.lastGesture} 
+              label="Last Event (Gaze/API)" 
+              value={systemMetrics.lastEvent} 
             />
             <View style={styles.divider} />
             <MetricRow 

@@ -10,7 +10,7 @@ import { Wifi, Activity } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 
 export const DashboardStandard = () => {
-  const { devices, quickActions, systemMetrics, toggleDevice } = useStore();
+  const { devices, quickActions, systemMetrics, toggleDeviceAsync } = useStore();
   const navigation = useNavigation<any>();
 
   return (
@@ -18,8 +18,8 @@ export const DashboardStandard = () => {
       {/* System Status Summary */}
       <Card style={styles.statusCard}>
         <View style={styles.statusRow}>
-          <Wifi size={20} color={systemMetrics.linkStatus === 'connected' ? theme.colors.success : theme.colors.warning} />
-          <Text style={styles.statusText}>System Connected</Text>
+          <Wifi size={20} color={systemMetrics.apiStatus === 'online' ? theme.colors.success : theme.colors.warning} />
+          <Text style={styles.statusText}>API Connected</Text>
         </View>
         <Text style={styles.subText}>Last cmd: {systemMetrics.lastCommand}</Text>
       </Card>
@@ -36,7 +36,7 @@ export const DashboardStandard = () => {
       <SectionTitle title="My Devices" actionText="View All Rooms" onActionPress={() => navigation.navigate('Rooms')} />
       <View style={styles.deviceGrid}>
         {devices.map(device => (
-          <DeviceCard key={device.id} device={device} onToggle={toggleDevice} />
+          <DeviceCard key={device.id} device={device} onToggle={toggleDeviceAsync} />
         ))}
       </View>
     </View>

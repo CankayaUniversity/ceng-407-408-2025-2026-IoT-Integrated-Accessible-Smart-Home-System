@@ -18,6 +18,15 @@ interface AppState {
   gestures: typeof mockGestures;
   rooms: typeof mockRooms;
   security: typeof mockSecurity;
+  
+  // Feedback States
+  isLoading: boolean;
+  toastMessage: string | null;
+  toastSeverity: 'info' | 'success' | 'warning' | 'error';
+  
+  toggleDeviceAsync: (id: string) => Promise<void>;
+  clearToast: () => void;
+  showToast: (msg: string, severity: 'info' | 'success' | 'warning' | 'error') => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -41,4 +50,39 @@ export const useStore = create<AppState>((set) => ({
   gestures: mockGestures,
   rooms: mockRooms,
   security: mockSecurity,
+  
+  isLoading: false,
+  toastMessage: null,
+  toastSeverity: 'info',
+  
+  clearToast: () => set({ toastMessage: null }),
+  showToast: (msg, severity) => set({ toastMessage: msg, toastSeverity: severity }),
+  
+  toggleDeviceAsync: async (id: string) => {
+    set({ isLoading: true });
+    
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 600));
+    
+    set((state) => {
+      const device = state.devices.find(d => d.id === id);
+      if (!device) return { isLoading: false, toastMessage: 'Device not found!', toastSeverity: 'error' };
+      
+      const newState = (device.state === 'on' ? 'off' : 'on') as 'on' | 'off';
+      const updatedDevices = state.devices.map(d => 
+        d.id === id ? { ...d, state: newState } : d
+      );
+      
+      return {
+        devices: updatedDevices,
+        isLoading: false,
+        toastMessage: `${device.name} turned ${newState}`,
+        toastSeverity: 'success',
+        systemMetrics: {
+          ...state.systemMetrics,
+          lastCommand: `Set ${device.name} to ${newState.toUpperCase()}`
+        }
+      };
+    });
+  }
 }));

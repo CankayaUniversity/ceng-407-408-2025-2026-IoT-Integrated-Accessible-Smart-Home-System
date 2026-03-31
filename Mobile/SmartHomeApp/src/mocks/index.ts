@@ -34,9 +34,9 @@ export const mockSystemMetrics: SystemMetrics = {
   cpuLoad: 24.5,
   memoryUsage: 64.2,
   uptime: '15d 14h 22m',
-  linkStatus: 'connected',
+  apiStatus: 'online',
   lastCommand: 'Set Living Room Light 80%',
-  lastGesture: 'Swipe Right',
+  lastEvent: 'Gaze Detected: Look Right',
   neuralEngine: 'Active (Node A2)',
 };
 

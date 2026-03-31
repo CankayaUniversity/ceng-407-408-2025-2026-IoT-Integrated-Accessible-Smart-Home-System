@@ -22,8 +22,8 @@ export const GestureControlScreen = () => {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
-        <SectionTitle title="Gesture Control" />
-        <Text style={styles.description}>Map your physical movements to common smart home actions.</Text>
+        <SectionTitle title="Gaze & Gesture Mapping" />
+        <Text style={styles.description}>Map your physical movements and gaze interactions to common smart home actions.</Text>
         
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 40}}>
           {gestures.map(gesture => (

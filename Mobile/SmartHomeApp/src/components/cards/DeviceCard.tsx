@@ -1,8 +1,11 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Device } from '../../types';
 import { theme } from '../../theme';
 import { Lightbulb, Thermometer, Lock, Video, Radio, Power } from 'lucide-react-native';
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 interface DeviceCardProps {
   device: Device;
@@ -23,13 +26,35 @@ const getDeviceIcon = (type: string, active: boolean) => {
 
 export const DeviceCard = ({ device, onToggle, accessibleMode = false }: DeviceCardProps) => {
   const isActive = device.state === 'on';
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => { 
+    Animated.spring(scale, {
+      toValue: 0.96,
+      useNativeDriver: true,
+      friction: 5,
+    }).start();
+  };
+  
+  const handlePressOut = () => { 
+    Animated.spring(scale, {
+      toValue: 1,
+      useNativeDriver: true,
+      friction: 5,
+    }).start();
+  };
+
+  const animatedStyle = {
+    transform: [{ scale }]
+  };
 
   if (accessibleMode) {
     return (
-      <TouchableOpacity 
-        style={[styles.accContainer, isActive && styles.activeContainer]}
+      <AnimatedPressable 
+        style={[styles.accContainer, isActive && styles.activeContainer, animatedStyle]}
         onPress={() => onToggle(device.id)}
-        activeOpacity={0.8}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
       >
         <View style={styles.iconWrapper}>
           {getDeviceIcon(device.type, isActive)}
@@ -38,16 +63,26 @@ export const DeviceCard = ({ device, onToggle, accessibleMode = false }: DeviceC
         <View style={styles.powerBtn}>
           <Power size={32} color={isActive ? theme.colors.primary : theme.colors.text.secondary} />
         </View>
-      </TouchableOpacity>
+      </AnimatedPressable>
     );
   }
 
   return (
-    <TouchableOpacity 
-      style={[styles.container, isActive && styles.activeContainer]}
+    <AnimatedPressable 
+      style={[styles.container, animatedStyle, isActive && { borderColor: 'transparent' }]}
       onPress={() => onToggle(device.id)}
-      activeOpacity={0.8}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
+      {isActive ? (
+        <LinearGradient
+          colors={[theme.colors.surfaceHighlight, '#2A1F1C']} // Subtitle copper-ish gradient
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : null}
+      
       <View style={styles.header}>
         {getDeviceIcon(device.type, isActive)}
         <View style={[styles.statusDot, isActive && styles.statusActive]} />
@@ -59,7 +94,7 @@ export const DeviceCard = ({ device, onToggle, accessibleMode = false }: DeviceC
           {device.state === 'offline' ? 'Offline' : (device.value ? `${device.value}${device.type === 'light' ? '%' : '°'}` : (isActive ? 'On' : 'Off'))}
         </Text>
       </View>
-    </TouchableOpacity>
+    </AnimatedPressable>
   );
 };
 
@@ -71,9 +106,10 @@ const styles = StyleSheet.create({
     width: '47%',
     aspectRatio: 1,
     borderWidth: 1,
-    borderColor: theme.colors.surfaceHighlight,
+    borderColor: theme.colors.border,
     justifyContent: 'space-between',
     marginBottom: theme.spacing.md,
+    overflow: 'hidden',
   },
   activeContainer: {
     borderColor: theme.colors.primaryDark,
