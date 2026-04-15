@@ -7,7 +7,8 @@ import { theme } from '../../theme';
 import { Thermometer, Droplets, Wind, Plus, Minus } from 'lucide-react-native';
 
 export const ClimateScreen = () => {
-  const { climate, setTargetTemperature } = useStore();
+  const { climate, setTargetTemperature, appMode } = useStore();
+  const isAccessible = appMode === 'accessibility';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -20,24 +21,32 @@ export const ClimateScreen = () => {
             <Text style={styles.modeText}>{climate.mode.toUpperCase()} MODE</Text>
             
             <View style={styles.dialContainer}>
-              <TouchableOpacity style={styles.circleBtn} onPress={() => setTargetTemperature(climate.targetTemperature - 1)}>
-                <Minus color={theme.colors.primary} size={32} />
+              <TouchableOpacity
+                style={[styles.circleBtn, isAccessible && styles.circleBtnLarge]}
+                onPress={() => setTargetTemperature(climate.targetTemperature - 1)}
+              >
+                <Minus color={theme.colors.primary} size={isAccessible ? 40 : 32} />
               </TouchableOpacity>
               
               <View style={styles.tempDisplay}>
-                <Text style={styles.humongousText}>{climate.targetTemperature}°</Text>
+                <Text style={[styles.humongousText, isAccessible && styles.humongousTextLarge]}>
+                  {climate.targetTemperature}°
+                </Text>
                 <Text style={styles.targetLabel}>Target</Text>
               </View>
 
-              <TouchableOpacity style={styles.circleBtn} onPress={() => setTargetTemperature(climate.targetTemperature + 1)}>
-                <Plus color={theme.colors.primary} size={32} />
+              <TouchableOpacity
+                style={[styles.circleBtn, isAccessible && styles.circleBtnLarge]}
+                onPress={() => setTargetTemperature(climate.targetTemperature + 1)}
+              >
+                <Plus color={theme.colors.primary} size={isAccessible ? 40 : 32} />
               </TouchableOpacity>
             </View>
             
             <Text style={styles.currentTemp}>Current: {climate.temperature}° C</Text>
           </Card>
 
-          {/* Atmsophere Info */}
+          {/* Atmosphere Info */}
           <SectionTitle title="Atmosphere" />
           <View style={styles.row}>
             <Card style={styles.halfCard}>
@@ -57,16 +66,20 @@ export const ClimateScreen = () => {
             </Card>
           </View>
 
-          {/* Room Temps */}
-          <SectionTitle title="Room By Room" />
-          {climate.rooms.map((room, idx) => (
-            <Card key={idx} style={styles.roomRow}>
-              <Text style={styles.roomName}>{room.name}</Text>
-              <View style={styles.roomTempBox}>
-                <Text style={styles.roomTemp}>{room.temp}°</Text>
-              </View>
-            </Card>
-          ))}
+          {/* Room Temps — hidden in accessible mode for simplicity */}
+          {!isAccessible && (
+            <>
+              <SectionTitle title="Room By Room" />
+              {climate.rooms.map((room, idx) => (
+                <Card key={idx} style={styles.roomRow}>
+                  <Text style={styles.roomName}>{room.name}</Text>
+                  <View style={styles.roomTempBox}>
+                    <Text style={styles.roomTemp}>{room.temp}°</Text>
+                  </View>
+                </Card>
+              ))}
+            </>
+          )}
           
         </ScrollView>
       </View>
@@ -112,6 +125,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.primaryDark,
   },
+  circleBtnLarge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+  },
   tempDisplay: {
     alignItems: 'center',
   },
@@ -119,6 +138,9 @@ const styles = StyleSheet.create({
     fontSize: 64,
     fontWeight: '800',
     color: theme.colors.text.primary,
+  },
+  humongousTextLarge: {
+    fontSize: 80,
   },
   targetLabel: {
     ...theme.typography.body,

@@ -73,7 +73,8 @@ class HandGestureDetector:
         if self.same_count == self.required_frames:
             return build_event(
                 event_name=gesture,
-                metadata={"source_mode": "hand"}
+                metadata={"source_mode": "hand"},
+                event_type="hand",
             )
 
         return None

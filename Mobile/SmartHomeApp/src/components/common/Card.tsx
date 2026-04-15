@@ -7,9 +7,10 @@ interface CardProps {
   style?: StyleProp<ViewStyle>;
   onPress?: () => void;
   active?: boolean;
+  focused?: boolean;
 }
 
-export const Card = ({ children, style, onPress, active }: CardProps) => {
+export const Card = ({ children, style, onPress, active, focused }: CardProps) => {
   const Container = onPress ? TouchableOpacity : View;
   
   return (
@@ -17,6 +18,7 @@ export const Card = ({ children, style, onPress, active }: CardProps) => {
       style={[
         styles.container, 
         active && styles.active,
+        focused && styles.focused,
         style
       ]} 
       onPress={onPress}
@@ -38,5 +40,10 @@ const styles = StyleSheet.create({
   active: {
     borderColor: theme.colors.primary,
     backgroundColor: theme.colors.surfaceHighlight,
-  }
+  },
+  focused: {
+    borderColor: theme.colors.focusRing,
+    borderWidth: theme.accessibility.focusBorderWidth,
+    backgroundColor: theme.colors.focusBackground,
+  },
 });

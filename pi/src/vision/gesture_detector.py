@@ -16,7 +16,7 @@ class GestureDetector:
         self.long_blink_ear = 0.18
         self.long_blink_min = 0.55
         self.long_blink_max = 1.5
-        self.short_blink_min = 0.2
+        self.short_blink_min = 0.20
         self.short_blink_max = 0.35
         self.gaze_stable_time = 0.35
 
@@ -51,7 +51,11 @@ class GestureDetector:
                 duration = now - self.long_blink_start_time
                 self.long_blink_closed = False
                 if self.long_blink_min <= duration <= self.long_blink_max:
-                    return build_event("LONG_BLINK", metadata={"duration": duration, "ear": ear})
+                    return build_event(
+                        "long_blink",
+                        metadata={"duration": duration, "ear": ear},
+                        source="eye",
+                    )
 
         if ear < self.ear_threshold:
             if not self.short_blink_closed:
@@ -62,7 +66,11 @@ class GestureDetector:
                 duration = now - self.short_blink_start_time
                 self.short_blink_closed = False
                 if self.short_blink_min <= duration <= self.short_blink_max:
-                    return build_event("SHORT_BLINK", metadata={"duration": duration, "ear": ear})
+                    return build_event(
+                        "short_blink",
+                        metadata={"duration": duration, "ear": ear},
+                        source="eye",
+                    )
 
         if gaze_text in ("LEFT", "RIGHT"):
             if gaze_text == self.last_gaze:
@@ -82,7 +90,12 @@ class GestureDetector:
             and self.gaze_same_time >= self.gaze_stable_time
         ):
             self.gaze_event_fired = True
-            return build_event(f"LOOK_{gaze_text}", metadata={"gaze": gaze_text, "ear": ear})
+            event_name = "look_left" if gaze_text == "LEFT" else "look_right"
+            return build_event(
+                event_name,
+                metadata={"gaze": gaze_text, "ear": ear},
+                source="eye",
+            )
 
         return None
 
