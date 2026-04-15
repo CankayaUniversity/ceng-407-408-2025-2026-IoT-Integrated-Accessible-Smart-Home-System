@@ -1,4 +1,4 @@
-import { Device, Room, Climate, SystemMetrics, Gesture, QuickAction, SecurityStatus } from '../types';
+import { Device, Room, Climate, SystemMetrics, QuickAction, SecurityStatus, EventActionMapping } from '../types';
 
 export const mockDevices: Device[] = [
   { id: '1', name: 'Living Room Lights', type: 'light', roomId: 'r1', state: 'on', value: 80 },
@@ -40,12 +40,6 @@ export const mockSystemMetrics: SystemMetrics = {
   neuralEngine: 'Active (Node A2)',
 };
 
-export const mockGestures: Gesture[] = [
-  { id: 'g1', name: 'Swipe Up', description: 'Raise hand upwards', iconName: 'arrow-up', assignedAction: 'Turn All Lights On' },
-  { id: 'g2', name: 'Swipe Down', description: 'Lower hand downwards', iconName: 'arrow-down', assignedAction: 'Turn All Lights Off' },
-  { id: 'g3', name: 'Circle', description: 'Draw a circle in air', iconName: 'refresh-ccw', assignedAction: 'Toggle AC' },
-];
-
 export const mockQuickActions: QuickAction[] = [
   { id: 'qa1', label: 'Good Morning', iconName: 'sun', action: 'morning_routine' },
   { id: 'qa2', label: 'Leaving Home', iconName: 'log-out', action: 'leave_routine' },
@@ -59,3 +53,22 @@ export const mockSecurity: SecurityStatus = {
   windowsClosed: false,
   activeAlarms: 0,
 };
+
+// ============================================================
+// New: Vision/Mapping mock data
+// ============================================================
+
+export const mockMappings: EventActionMapping = {
+  look_left: 'NAV_LEFT',
+  look_right: 'NAV_RIGHT',
+  short_blink: 'SELECT',
+  long_blink: 'BACK',
+};
+
+export const mockSupportedActions: string[] = [
+  'BACK', 'LIGHT_OFF', 'LIGHT_ON', 'NAV_LEFT', 'NAV_RIGHT', 'PLUG_OFF', 'PLUG_ON', 'SELECT',
+];
+
+export const mockSupportedVisionEvents: string[] = [
+  'long_blink', 'look_left', 'look_right', 'short_blink',
+];

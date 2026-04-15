@@ -104,7 +104,7 @@ export const AppNavigator = () => {
           component={GestureControlScreen} 
           options={{ 
             headerShown: true, 
-            title: "Gestures Control", 
+            title: "Mapping & Diagnostics", 
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.text.primary,
           }}

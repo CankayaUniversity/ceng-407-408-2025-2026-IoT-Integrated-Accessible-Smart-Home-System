@@ -3,112 +3,124 @@ import { View, StyleSheet, Text, ActivityIndicator, Pressable, ScrollView } from
 import { useStore } from '../../store/useStore';
 import { Card } from '../../components/common/Card';
 import { theme } from '../../theme';
-import { Eye, Power, ArrowLeft, ArrowRight, Zap, RefreshCw } from 'lucide-react-native';
-import { fetchStatus, sendEyeEvent } from '../../services/apiClient';
-import { BackendStatusResponse } from '../../types';
+import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw } from 'lucide-react-native';
+import { VisionEventName } from '../../types';
 
 export const DashboardAccessible = () => {
-  const { showToast } = useStore();
-  const [status, setStatus] = useState<BackendStatusResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const loadStatus = async () => {
-    try {
-      const data = await fetchStatus();
-      setStatus(data);
-    } catch (error) {
-      showToast('API Connection Failed', 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const {
+    showToast,
+    backendStatus,
+    isBackendConnected,
+    fetchBackendStatus,
+    sendVisionEvent,
+    mappings,
+  } = useStore();
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   useEffect(() => {
-    loadStatus();
-    // Poll every 2 seconds to keep in sync with API if external events occur
-    const interval = setInterval(loadStatus, 2000);
+    const load = async () => {
+      await fetchBackendStatus();
+      setIsInitialLoad(false);
+    };
+    load();
+    const interval = setInterval(fetchBackendStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleEyeEvent = async (name: 'look_left' | 'look_right' | 'short_blink' | 'long_blink') => {
+  const handleEyeEvent = async (name: VisionEventName) => {
     try {
-      await sendEyeEvent(name);
-      await loadStatus(); // Refresh immediately after interaction
-    } catch (error) {
+      await sendVisionEvent(name);
+    } catch {
       showToast(`Failed to send event: ${name}`, 'error');
     }
   };
 
-  if (isLoading && !status) {
+  if (isInitialLoad && !backendStatus) {
     return (
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Connecting to Eye Node...</Text>
+        <Text style={styles.loadingText}>Connecting to Backend...</Text>
       </View>
     );
   }
 
-  if (!status) {
+  if (!backendStatus) {
     return (
       <View style={[styles.container, styles.centered]}>
         <Text style={styles.errorText}>No connection to API</Text>
+        <Pressable style={styles.retryBtn} onPress={fetchBackendStatus}>
+          <RotateCcw size={20} color={theme.colors.text.primary} />
+          <Text style={styles.retryText}>Retry</Text>
+        </Pressable>
       </View>
     );
   }
 
-  const { ui_state, system_state } = status;
+  const { ui_state, system_state } = backendStatus;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
-      {/* Title Header directly driven from Backend current_screen */}
+      {/* Title Header from backend current_screen */}
       <View style={styles.header}>
         <Eye size={28} color={theme.colors.primary} />
-        <Text style={styles.title}>{ui_state.current_screen.replace('_', ' ').toUpperCase()}</Text>
+        <Text style={styles.title}>{ui_state.current_screen.replace(/_/g, ' ').toUpperCase()}</Text>
       </View>
 
-      {/* Backend Driven Menu Items */}
-      <View style={styles.menuContainer}>
+      {/* Backend-Driven Menu Items — Horizontal for gaze-friendliness */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.menuScroll}
+        style={styles.menuScrollOuter}
+      >
         {ui_state.items.map((item) => {
           const isSelected = ui_state.selected_item === item;
           return (
-            <Card 
-              key={item} 
-              style={[
-                styles.menuItem, 
-                isSelected && styles.menuItemSelected
-              ]}
+            <Card
+              key={item}
+              style={[styles.menuItem, isSelected && styles.menuItemSelected]}
+              focused={isSelected}
             >
               <Text style={[styles.itemText, isSelected && styles.itemTextSelected]}>
                 {item}
               </Text>
-              {isSelected && <Zap size={24} color={theme.colors.primary} />}
+              {isSelected && <Zap size={20} color={theme.colors.primary} />}
             </Card>
           );
         })}
-      </View>
+      </ScrollView>
 
-      {/* Device Status Information */}
-      <View style={styles.statusSection}>
-        <Text style={styles.sectionTitle}>Physical Devices</Text>
-        <View style={styles.deviceRow}>
-          <Card style={styles.deviceIndicator}>
-            <Text style={styles.deviceLabel}>Light</Text>
-            <Power 
-              size={24} 
-              color={system_state.device_status.light === 'on' ? theme.colors.success : theme.colors.text.secondary} 
-            />
-          </Card>
-          <Card style={styles.deviceIndicator}>
-            <Text style={styles.deviceLabel}>Plug</Text>
-            <Power 
-              size={24} 
-              color={system_state.device_status.plug === 'on' ? theme.colors.success : theme.colors.text.secondary} 
-            />
-          </Card>
+      {/* Active Mapping Display */}
+      <View style={styles.mappingSection}>
+        <Text style={styles.sectionTitle}>Active Mappings</Text>
+        <View style={styles.mappingGrid}>
+          {(Object.entries(mappings) as [VisionEventName, string][]).map(([event, action]) => (
+            <View key={event} style={styles.mappingChip}>
+              <Text style={styles.mappingEvent}>{event.replace(/_/g, ' ')}</Text>
+              <Text style={styles.mappingArrow}>→</Text>
+              <Text style={styles.mappingAction}>{action}</Text>
+            </View>
+          ))}
         </View>
       </View>
 
-      {/* Test Buttons Section for Simulate API Events */}
+      {/* Device Status */}
+      <View style={styles.statusSection}>
+        <Text style={styles.sectionTitle}>Physical Devices</Text>
+        <View style={styles.deviceRow}>
+          {Object.entries(system_state.device_status).map(([name, status]) => (
+            <Card key={name} style={styles.deviceIndicator}>
+              <Text style={styles.deviceLabel}>{name.charAt(0).toUpperCase() + name.slice(1)}</Text>
+              <Power
+                size={24}
+                color={status === 'on' ? theme.colors.success : theme.colors.text.secondary}
+              />
+            </Card>
+          ))}
+        </View>
+      </View>
+
+      {/* Test Buttons */}
       <View style={styles.testSection}>
         <Text style={styles.sectionTitle}>API Testing Controls</Text>
         <View style={styles.testGrid}>
@@ -125,7 +137,7 @@ export const DashboardAccessible = () => {
             <Text style={styles.testBtnText}>Select</Text>
           </Pressable>
           <Pressable style={styles.testButton} onPress={() => handleEyeEvent('long_blink')}>
-            <RefreshCw color={theme.colors.text.primary} />
+            <RotateCcw color={theme.colors.text.primary} />
             <Text style={styles.testBtnText}>Back</Text>
           </Pressable>
         </View>
@@ -152,6 +164,19 @@ const styles = StyleSheet.create({
     ...theme.typography.h2,
     color: theme.colors.error,
   },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.lg,
+    padding: theme.spacing.md,
+    backgroundColor: theme.colors.surfaceHighlight,
+    borderRadius: theme.radius.lg,
+  },
+  retryText: {
+    ...theme.typography.subtitle,
+    color: theme.colors.text.primary,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -163,40 +188,84 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
     marginLeft: theme.spacing.md,
   },
-  menuContainer: {
+  // Horizontal menu
+  menuScrollOuter: {
+    marginBottom: theme.spacing.xl,
+  },
+  menuScroll: {
+    paddingHorizontal: theme.spacing.xs,
     gap: theme.spacing.md,
-    marginBottom: theme.spacing.xxl,
   },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: theme.spacing.xl,
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.xxl,
+    paddingVertical: theme.spacing.xl,
     backgroundColor: '#1E2333',
     borderWidth: 2,
     borderColor: 'transparent',
+    minWidth: 140,
+    minHeight: theme.accessibility.cardMinHeight,
+    gap: theme.spacing.sm,
   },
   menuItemSelected: {
     borderColor: theme.colors.primary,
-    backgroundColor: 'rgba(232, 117, 88, 0.1)',
+    backgroundColor: theme.colors.focusBackground,
   },
   itemText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '600',
     color: theme.colors.text.secondary,
   },
   itemTextSelected: {
     color: theme.colors.primary,
-    fontSize: 28,
+    fontSize: 26,
+    fontWeight: '700',
   },
-  statusSection: {
-    marginBottom: theme.spacing.xxl,
+  // Mapping display
+  mappingSection: {
+    marginBottom: theme.spacing.xl,
   },
   sectionTitle: {
-    ...theme.typography.subtitle,
+    ...theme.typography.caption,
     color: theme.colors.text.secondary,
     marginBottom: theme.spacing.md,
     textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  mappingGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  mappingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    backgroundColor: theme.colors.surfaceHighlight,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    borderRadius: theme.radius.lg,
+  },
+  mappingEvent: {
+    ...theme.typography.caption,
+    color: theme.colors.text.primary,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  mappingArrow: {
+    ...theme.typography.caption,
+    color: theme.colors.text.tertiary,
+  },
+  mappingAction: {
+    ...theme.typography.caption,
+    color: theme.colors.primaryLight,
+    fontWeight: '600',
+  },
+  // Devices
+  statusSection: {
+    marginBottom: theme.spacing.xxl,
   },
   deviceRow: {
     flexDirection: 'row',
@@ -213,6 +282,7 @@ const styles = StyleSheet.create({
     ...theme.typography.h3,
     color: theme.colors.text.primary,
   },
+  // Test buttons
   testSection: {
     marginTop: theme.spacing.lg,
     paddingTop: theme.spacing.xl,

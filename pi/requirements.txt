@@ -1,3 +1,5 @@
+# Python 3.11.x required on Raspberry Pi
 mediapipe==0.10.18
 numpy==1.26.4
 opencv-python==4.11.0.86
+python-dotenv

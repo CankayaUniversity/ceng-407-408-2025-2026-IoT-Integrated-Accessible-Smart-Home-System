@@ -7,7 +7,6 @@ RIGHT_IRIS_CENTER = 468
 LEFT_IRIS_CENTER = 473
 
 CENTER_TOL = 0.1
-UP_DOWN_SCALE = 1.6
 
 
 def euclidean(p1, p2):
@@ -72,14 +71,8 @@ def iris_relative_position(landmarks, iris_idx, eye_indices, img_w, img_h):
 
 def classify_gaze(x_rel, y_rel):
     dx = x_rel - 0.5
-    dy = y_rel - 0.5
 
-    center_tol_x = CENTER_TOL
-    center_tol_y = CENTER_TOL * UP_DOWN_SCALE
-
-    if abs(dx) < center_tol_x and abs(dy) < center_tol_y:
+    if abs(dx) < CENTER_TOL:
         return "CENTER"
 
-    if abs(dx) > abs(dy):
-        return "LEFT" if dx > 0 else "RIGHT"
-    return "DOWN" if dy > 0 else "UP"
+    return "LEFT" if dx > 0 else "RIGHT"

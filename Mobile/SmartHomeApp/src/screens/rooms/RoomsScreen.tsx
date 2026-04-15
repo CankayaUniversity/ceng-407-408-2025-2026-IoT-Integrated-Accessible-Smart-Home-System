@@ -6,8 +6,9 @@ import { SectionTitle } from '../../components/layout/SectionTitle';
 import { theme } from '../../theme';
 
 export const RoomsScreen = () => {
-  const { rooms } = useStore();
+  const { rooms, appMode } = useStore();
   const [filter, setFilter] = useState<'all' | 'indoor' | 'outdoor'>('all');
+  const isAccessible = appMode === 'accessibility';
 
   const filteredRooms = rooms.filter(
     (room) => filter === 'all' || room.category === filter
@@ -20,13 +21,21 @@ export const RoomsScreen = () => {
         
         {/* Filters */}
         <View style={styles.filters}>
-          {['all', 'indoor', 'outdoor'].map((cat) => (
+          {(['all', 'indoor', 'outdoor'] as const).map((cat) => (
             <TouchableOpacity 
               key={cat}
-              style={[styles.filterChip, filter === cat && styles.activeChip]}
-              onPress={() => setFilter(cat as any)}
+              style={[
+                styles.filterChip,
+                filter === cat && styles.activeChip,
+                isAccessible && styles.filterChipLarge,
+              ]}
+              onPress={() => setFilter(cat)}
             >
-              <Text style={[styles.filterText, filter === cat && styles.activeFilterText]}>
+              <Text style={[
+                styles.filterText,
+                filter === cat && styles.activeFilterText,
+                isAccessible && styles.filterTextLarge,
+              ]}>
                 {cat.charAt(0).toUpperCase() + cat.slice(1)}
               </Text>
             </TouchableOpacity>
@@ -34,7 +43,7 @@ export const RoomsScreen = () => {
         </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={styles.grid}>
+          <View style={[styles.grid, isAccessible && styles.gridAccessible]}>
             {filteredRooms.map((room) => (
               <RoomCard key={room.id} room={room} onPress={() => {}} />
             ))}
@@ -68,6 +77,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: theme.colors.surfaceHighlight,
   },
+  filterChipLarge: {
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.md,
+  },
   activeChip: {
     backgroundColor: theme.colors.primary,
     borderColor: theme.colors.primary,
@@ -75,6 +88,9 @@ const styles = StyleSheet.create({
   filterText: {
     ...theme.typography.caption,
     color: theme.colors.text.secondary,
+  },
+  filterTextLarge: {
+    ...theme.typography.subtitle,
   },
   activeFilterText: {
     color: theme.colors.text.inverse,
@@ -85,5 +101,8 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     paddingBottom: theme.spacing.xxl,
-  }
+  },
+  gridAccessible: {
+    gap: theme.spacing.md,
+  },
 });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet, ScrollView, SafeAreaView } from 'react-native';
 import { Header } from '../../components/common/Header';
 import { ModeSwitcher } from '../../components/controls/ModeSwitcher';
@@ -8,7 +8,12 @@ import { DashboardStandard } from './DashboardStandard';
 import { DashboardAccessible } from './DashboardAccessible';
 
 export const DashboardScreen = () => {
-  const { appMode } = useStore();
+  const { appMode, fetchBackendStatus } = useStore();
+
+  // Kick off an initial backend status fetch on mount
+  useEffect(() => {
+    fetchBackendStatus();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe}>

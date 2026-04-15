@@ -1,12 +1,14 @@
 import axios from 'axios';
-import Constants from 'expo-constants';
-import { BackendStatusResponse } from '../types';
+import {
+  BackendStatusResponse,
+  MappingsResponse,
+  VisionEventRequest,
+  VisionEventResponse,
+  ActionExecuteResponse,
+  EventActionMapping,
+} from '../types';
 
-// Extract the exact IP address running the Expo Dev Server
-// This completely fixes "localhost vs IP" issues when testing on actual iPhones/Androids
-const hostUri = Constants.expoConfig?.hostUri;
-const ipAddress = hostUri ? hostUri.split(':')[0] : '127.0.0.1';
-const BASE_URL = `http://${ipAddress}:8000`;
+const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -16,7 +18,6 @@ export const apiClient = axios.create({
   },
 });
 
-// Mock interceptors for auth / error handling
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -25,15 +26,71 @@ apiClient.interceptors.response.use(
   }
 );
 
+// ============================================================
+// GET /status — Full system + UI + mappings snapshot
+// ============================================================
+
 export const fetchStatus = async (): Promise<BackendStatusResponse> => {
-  const { data } = await apiClient.get<BackendStatusResponse>('/status');
+  const { data } = await apiClient.get('/status');
   return data;
 };
 
-export const sendEyeEvent = async (name: 'look_left' | 'look_right' | 'short_blink' | 'long_blink'): Promise<any> => {
-  const { data } = await apiClient.post('/event', {
-    event_type: 'eye',
-    name,
-  });
+// ============================================================
+// GET /vision-event-types — Supported eye event names
+// ============================================================
+
+export const fetchVisionEventTypes = async (): Promise<string[]> => {
+  const { data } = await apiClient.get('/vision-event-types');
+  return data.vision_event_types;
+};
+
+// ============================================================
+// GET /actions — Supported action names
+// ============================================================
+
+export const fetchActions = async (): Promise<string[]> => {
+  const { data } = await apiClient.get('/actions');
+  return data.actions;
+};
+
+// ============================================================
+// GET /mappings — Current event→action mappings + supported lists
+// ============================================================
+
+export const fetchMappings = async (): Promise<MappingsResponse> => {
+  const { data } = await apiClient.get('/mappings');
+  return data;
+};
+
+// ============================================================
+// PUT /mappings — Save edited mappings
+// ============================================================
+
+export const updateMappings = async (
+  mappings: Partial<EventActionMapping>
+): Promise<MappingsResponse> => {
+  const { data } = await apiClient.put('/mappings', { mappings });
+  return data;
+};
+
+// ============================================================
+// POST /vision-events — Send an eye/vision event
+// ============================================================
+
+export const sendVisionEvent = async (
+  payload: VisionEventRequest
+): Promise<VisionEventResponse> => {
+  const { data } = await apiClient.post('/vision-events', payload);
+  return data;
+};
+
+// ============================================================
+// POST /actions/execute — Manually trigger an action
+// ============================================================
+
+export const executeAction = async (
+  action: string
+): Promise<ActionExecuteResponse> => {
+  const { data } = await apiClient.post('/actions/execute', { action });
   return data;
 };

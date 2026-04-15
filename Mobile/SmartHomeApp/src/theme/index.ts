@@ -17,6 +17,9 @@ export const colors = {
     inverse: '#0F172A',
   },
   border: '#334155',
+  // Accessibility / gaze focus tokens
+  focusRing: '#E07A5F',
+  focusBackground: 'rgba(224, 122, 95, 0.12)',
 };
 
 export const spacing = {
@@ -74,11 +77,19 @@ export const typography = {
   },
 };
 
+// Accessibility-specific design tokens
+export const accessibility = {
+  cardMinHeight: 80,
+  focusBorderWidth: 3,
+  largeFontScale: 1.25,
+};
+
 export const theme = {
   colors,
   spacing,
   radius,
   typography,
+  accessibility,
 };
 
 export type Theme = typeof theme;

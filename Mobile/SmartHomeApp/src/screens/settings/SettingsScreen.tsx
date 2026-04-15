@@ -5,8 +5,8 @@ import { SectionTitle } from '../../components/layout/SectionTitle';
 import { Card } from '../../components/common/Card';
 import { ModeSwitcher } from '../../components/controls/ModeSwitcher';
 import { theme } from '../../theme';
-import { Settings, HelpCircle, HardDrive, Smartphone, Server } from 'lucide-react-native';
-import { NavigationProp, useNavigation } from '@react-navigation/native';
+import { Settings, HardDrive, Smartphone, Server, Eye, Activity } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
 
 type SubMenuItemProps = {
   title: string;
@@ -37,42 +37,47 @@ export const SettingsScreen = () => {
         <SectionTitle title="Settings" />
         
         <ScrollView showsVerticalScrollIndicator={false}>
-          <SectionTitle title="App Appearance" />
+          {/* App Mode */}
+          <SectionTitle title="App Mode" />
           <ModeSwitcher />
 
-          <SectionTitle title="Device Settings" />
+          {/* Accessibility & Mapping */}
+          <SectionTitle title="Accessibility" />
           <Card style={styles.card}>
             <SubMenuItem 
-              title="Gestures Control" 
-              subtitle="Map gestures to actions" 
-              icon={<Smartphone color={theme.colors.text.secondary} size={24} />} 
+              title="Mapping & Diagnostics" 
+              subtitle="Customize eye-to-action mapping" 
+              icon={<Eye color={theme.colors.primary} size={24} />} 
               onPress={() => navigation.navigate('Gestures')}
             />
             <View style={styles.divider} />
             <SubMenuItem 
               title="System Status" 
-              subtitle="Check hardware state" 
-              icon={<HardDrive color={theme.colors.text.secondary} size={24} />} 
+              subtitle="Backend metrics & device state" 
+              icon={<Activity color={theme.colors.text.secondary} size={24} />} 
               onPress={() => navigation.navigate('System')}
             />
           </Card>
 
-          <SectionTitle title="Connection (API Ready)" />
+          {/* Connection */}
+          <SectionTitle title="Connection" />
           <Card style={styles.card}>
             <SubMenuItem 
               title="FastAPI Server Target" 
-              subtitle="http://raspberrypi5.local:8000" 
+              subtitle="http://192.168.1.46:8000" 
               icon={<Server color={theme.colors.primary} size={24} />} 
               onPress={() => {}}
             />
           </Card>
 
+          {/* About */}
           <SectionTitle title="About" />
           <Card style={styles.card}>
             <SubMenuItem 
-              title="Help & Support" 
-              icon={<HelpCircle color={theme.colors.text.secondary} size={24} />} 
-              onPress={() => {}}
+              title="Device Settings" 
+              subtitle="Hardware configuration" 
+              icon={<HardDrive color={theme.colors.text.secondary} size={24} />} 
+              onPress={() => navigation.navigate('System')}
             />
             <View style={styles.divider} />
             <Text style={styles.versionLabel}>Version 1.0.0 (Beta)</Text>
