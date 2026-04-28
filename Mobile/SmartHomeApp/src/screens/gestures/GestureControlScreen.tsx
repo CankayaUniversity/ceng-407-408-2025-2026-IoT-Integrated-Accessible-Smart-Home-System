@@ -10,6 +10,7 @@ import { theme } from '../../theme';
 import {
   Eye, ArrowLeft, ArrowRight, Zap, RotateCcw,
   Wifi, WifiOff, Monitor, Save, Activity,
+  Hand,
 } from 'lucide-react-native';
 import {
   VisionEventName,
@@ -25,6 +26,7 @@ export const GestureControlScreen = () => {
   const {
     mappings,
     supportedActions,
+    supportedVisionEvents,
     isBackendConnected,
     backendStatus,
     fetchBackendStatus,
@@ -63,24 +65,27 @@ export const GestureControlScreen = () => {
     setIsDirty(false);
   };
 
-  const handleTestEvent = async (name: VisionEventName) => {
+  const handleTestEvent = async (source: string, name: string) => {
     const entryId = `evt-${++historyIdCounter.current}`;
     try {
-      const response = await sendVisionEventApi({ source: 'eye', name });
+      const response = await sendVisionEventApi(source, name);
       const entry: EventHistoryEntry = {
         id: entryId,
         timestamp: new Date().toLocaleTimeString(),
-        eventName: name,
+        eventName: `${source}:${name}`,
         mappedAction: response.mapped_action,
         success: response.success,
+        ignored: response.ignored,
+        reason: response.reason,
+        control_mode: response.control_mode,
       };
       setEventHistory(prev => [entry, ...prev].slice(0, 20));
-      await fetchBackendStatus();
+      // fetchBackendStatus is called inside store action
     } catch {
       const entry: EventHistoryEntry = {
         id: entryId,
         timestamp: new Date().toLocaleTimeString(),
-        eventName: name,
+        eventName: `${source}:${name}`,
         mappedAction: null,
         success: false,
       };
@@ -89,7 +94,20 @@ export const GestureControlScreen = () => {
     }
   };
 
-  const visionEvents: VisionEventName[] = ['look_left', 'look_right', 'short_blink', 'long_blink'];
+  const defaultEyeEvents = ['eye:look_left', 'eye:look_right', 'eye:short_blink', 'eye:long_blink'];
+  const defaultHandEvents = ['hand:swipe_left', 'hand:swipe_right', 'hand:pinch', 'hand:open_palm_hold'];
+  
+  const eyeEvents = supportedVisionEvents?.filter(e => e.startsWith('eye:'))?.length 
+    ? supportedVisionEvents.filter(e => e.startsWith('eye:')) 
+    : defaultEyeEvents;
+    
+  const handEvents = supportedVisionEvents?.filter(e => e.startsWith('hand:'))?.length 
+    ? supportedVisionEvents.filter(e => e.startsWith('hand:')) 
+    : defaultHandEvents;
+
+  const safeActions = supportedActions?.length > 0 
+    ? supportedActions 
+    : ['NAV_LEFT', 'NAV_RIGHT', 'SELECT', 'CONFIRM', 'BACK', 'LIGHT_ON', 'LIGHT_OFF', 'PLUG_ON', 'PLUG_OFF'];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -100,15 +118,29 @@ export const GestureControlScreen = () => {
         </Text>
 
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 60 }}>
-          {/* ── Event→Action Mappings ── */}
+          {/* ── Eye Events Mappings ── */}
           <Card style={styles.section}>
-            <Text style={styles.sectionLabel}>EVENT → ACTION MAPPINGS</Text>
-            {visionEvents.map(event => (
+            <Text style={styles.sectionLabel}>EYE EVENTS</Text>
+            {eyeEvents.map(event => (
               <MappingRow
                 key={event}
                 eventName={event}
                 currentAction={editedMappings[event]}
-                availableActions={supportedActions}
+                availableActions={safeActions}
+                onActionChange={(action) => handleActionChange(event, action)}
+              />
+            ))}
+          </Card>
+
+          {/* ── Hand Events Mappings ── */}
+          <Card style={styles.section}>
+            <Text style={styles.sectionLabel}>HAND EVENTS</Text>
+            {handEvents.map(event => (
+              <MappingRow
+                key={event}
+                eventName={event}
+                currentAction={editedMappings[event]}
+                availableActions={safeActions}
                 onActionChange={(action) => handleActionChange(event, action)}
               />
             ))}
@@ -179,23 +211,43 @@ export const GestureControlScreen = () => {
           </Card>
 
           {/* ── Test Events ── */}
-          <SectionTitle title="Test Events" />
+          <SectionTitle title="Test Eye Events" />
           <View style={styles.testGrid}>
-            <Pressable style={styles.testButton} onPress={() => handleTestEvent('look_left')}>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'look_left')}>
               <ArrowLeft color={theme.colors.text.primary} size={20} />
-              <Text style={styles.testBtnText}>Left</Text>
+              <Text style={styles.testBtnText}>Look Left</Text>
             </Pressable>
-            <Pressable style={styles.testButton} onPress={() => handleTestEvent('look_right')}>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'look_right')}>
               <ArrowRight color={theme.colors.text.primary} size={20} />
-              <Text style={styles.testBtnText}>Right</Text>
+              <Text style={styles.testBtnText}>Look Right</Text>
             </Pressable>
-            <Pressable style={[styles.testButton, styles.testButtonPrimary]} onPress={() => handleTestEvent('short_blink')}>
+            <Pressable style={[styles.testButton, styles.testButtonPrimary]} onPress={() => handleTestEvent('eye', 'short_blink')}>
               <Zap color={theme.colors.text.primary} size={20} />
-              <Text style={styles.testBtnText}>Select</Text>
+              <Text style={styles.testBtnText}>Short Blink</Text>
             </Pressable>
-            <Pressable style={styles.testButton} onPress={() => handleTestEvent('long_blink')}>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'long_blink')}>
               <RotateCcw color={theme.colors.text.primary} size={20} />
-              <Text style={styles.testBtnText}>Back</Text>
+              <Text style={styles.testBtnText}>Long Blink</Text>
+            </Pressable>
+          </View>
+
+          <SectionTitle title="Test Hand Events" />
+          <View style={styles.testGrid}>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'swipe_left')}>
+              <ArrowLeft color={theme.colors.text.primary} size={20} />
+              <Text style={styles.testBtnText}>Swipe Left</Text>
+            </Pressable>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'swipe_right')}>
+              <ArrowRight color={theme.colors.text.primary} size={20} />
+              <Text style={styles.testBtnText}>Swipe Right</Text>
+            </Pressable>
+            <Pressable style={[styles.testButton, styles.testButtonPrimary]} onPress={() => handleTestEvent('hand', 'pinch')}>
+              <Hand color={theme.colors.text.primary} size={20} />
+              <Text style={styles.testBtnText}>Pinch</Text>
+            </Pressable>
+            <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'open_palm_hold')}>
+              <Hand color={theme.colors.text.primary} size={20} />
+              <Text style={styles.testBtnText}>Palm Hold</Text>
             </Pressable>
           </View>
 

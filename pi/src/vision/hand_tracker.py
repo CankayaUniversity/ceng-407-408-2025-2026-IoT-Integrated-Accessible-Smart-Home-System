@@ -1,5 +1,11 @@
-import mediapipe as mp
 import cv2
+import mediapipe as mp
+
+from config import (
+    HAND_MIN_DETECTION_CONFIDENCE,
+    HAND_MIN_TRACKING_CONFIDENCE,
+    HAND_MODEL_COMPLEXITY,
+)
 
 mp_hands = mp.solutions.hands
 
@@ -9,9 +15,9 @@ class HandTracker:
         self.hands = mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
-            model_complexity=0,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5,
+            model_complexity=HAND_MODEL_COMPLEXITY,
+            min_detection_confidence=HAND_MIN_DETECTION_CONFIDENCE,
+            min_tracking_confidence=HAND_MIN_TRACKING_CONFIDENCE,
         )
 
     def process(self, frame):

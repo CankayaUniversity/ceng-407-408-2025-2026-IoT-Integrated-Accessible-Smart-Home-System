@@ -8,11 +8,11 @@ export type AppMode = 'standard' | 'accessibility';
 // Vision / Eye Events
 // ============================================================
 
-/** The only four supported eye-event names (no look_up / look_down). */
-export type VisionEventName = 'look_left' | 'look_right' | 'short_blink' | 'long_blink';
+/** Supported vision event keys (source:name) or string */
+export type VisionEventName = string;
 
-/** Maps each vision-event name to an action string. */
-export type EventActionMapping = Record<VisionEventName, string>;
+/** Maps each vision-event key to an action string. */
+export type EventActionMapping = Record<string, string>;
 
 /** POST /vision-events request body. */
 export interface VisionEventRequest {
@@ -36,11 +36,14 @@ export interface BackendUIState {
 
 export interface BackendSystemState {
   last_vision_event: {
-    type: string;
+    type?: string;
     source: string;
     name: string;
+    event_key?: string;
     timestamp: string;
     confidence?: number;
+    ignored?: boolean;
+    ignore_reason?: string;
   } | null;
   last_action: {
     action: string;
@@ -57,6 +60,29 @@ export interface BackendSystemState {
 }
 
 // ============================================================
+// Control Mode Types
+// ============================================================
+
+export type ControlMode = 'eye_only' | 'hand_only' | 'hybrid';
+
+export interface EnabledSources {
+  eye: boolean;
+  hand: boolean;
+}
+
+export interface ControlModeResponse {
+  success: boolean;
+  control_mode: ControlMode;
+  enabled_sources: EnabledSources;
+  supported_control_modes?: string[];
+  message?: string;
+}
+
+export interface UpdateControlModeRequest {
+  control_mode: ControlMode;
+}
+
+// ============================================================
 // Backend API Responses
 // ============================================================
 
@@ -66,6 +92,8 @@ export interface BackendStatusResponse {
   ui_state: BackendUIState;
   device_controller_mode: string;
   mappings: EventActionMapping;
+  control_mode?: ControlMode;
+  enabled_sources?: EnabledSources;
 }
 
 export interface MappingsResponse {
@@ -77,7 +105,11 @@ export interface MappingsResponse {
 
 export interface VisionEventResponse {
   success: boolean;
-  vision_event: { source: string; name: string };
+  ignored?: boolean;
+  reason?: string;
+  control_mode?: ControlMode;
+  enabled_sources?: EnabledSources;
+  vision_event: { source: string; name: string; event_key?: string };
   mapped_action: string | null;
   action_result?: any;
   ui_state: BackendUIState;
@@ -179,4 +211,7 @@ export interface EventHistoryEntry {
   eventName: string;
   mappedAction: string | null;
   success: boolean;
+  ignored?: boolean;
+  reason?: string;
+  control_mode?: string;
 }

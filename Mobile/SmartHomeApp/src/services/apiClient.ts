@@ -6,12 +6,13 @@ import {
   VisionEventResponse,
   ActionExecuteResponse,
   EventActionMapping,
+  ControlModeResponse,
+  UpdateControlModeRequest,
 } from '../types';
-
-const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000';
+import { API_BASE_URL } from '../config/api';
 
 export const apiClient = axios.create({
-  baseURL: BASE_URL,
+  baseURL: API_BASE_URL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -74,7 +75,27 @@ export const updateMappings = async (
 };
 
 // ============================================================
-// POST /vision-events — Send an eye/vision event
+// GET /control-mode — Get current control mode and enabled sources
+// ============================================================
+
+export const fetchControlMode = async (): Promise<ControlModeResponse> => {
+  const { data } = await apiClient.get('/control-mode');
+  return data;
+};
+
+// ============================================================
+// PUT /control-mode — Update current control mode
+// ============================================================
+
+export const updateControlMode = async (
+  payload: UpdateControlModeRequest
+): Promise<ControlModeResponse> => {
+  const { data } = await apiClient.put('/control-mode', payload);
+  return data;
+};
+
+// ============================================================
+// POST /vision-events — Send a vision event
 // ============================================================
 
 export const sendVisionEvent = async (

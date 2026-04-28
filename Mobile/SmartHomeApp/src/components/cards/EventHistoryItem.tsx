@@ -14,10 +14,20 @@ export const EventHistoryItem = ({ entry }: EventHistoryItemProps) => {
       <Text style={styles.time}>{entry.timestamp}</Text>
       <View style={styles.eventGroup}>
         <Text style={styles.eventName}>{entry.eventName}</Text>
-        <Text style={styles.arrow}>→</Text>
-        <Text style={styles.action}>{entry.mappedAction || 'none'}</Text>
+        {entry.ignored ? (
+          <Text style={styles.ignoredText} numberOfLines={1}>
+            {entry.reason || 'Ignored'}
+          </Text>
+        ) : (
+          <>
+            <Text style={styles.arrow}>→</Text>
+            <Text style={styles.action}>{entry.mappedAction || 'none'}</Text>
+          </>
+        )}
       </View>
-      {entry.success ? (
+      {entry.ignored ? (
+        <XCircle size={14} color={theme.colors.warning} />
+      ) : entry.success ? (
         <CheckCircle size={14} color={theme.colors.success} />
       ) : (
         <XCircle size={14} color={theme.colors.error} />
@@ -61,5 +71,11 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.colors.primaryLight,
     fontWeight: '600',
+  },
+  ignoredText: {
+    ...theme.typography.caption,
+    color: theme.colors.warning,
+    flex: 1,
+    fontStyle: 'italic',
   },
 });

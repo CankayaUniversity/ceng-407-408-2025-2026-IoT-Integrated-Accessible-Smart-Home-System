@@ -3,7 +3,7 @@ import { View, StyleSheet, Text, ActivityIndicator, Pressable, ScrollView } from
 import { useStore } from '../../store/useStore';
 import { Card } from '../../components/common/Card';
 import { theme } from '../../theme';
-import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw } from 'lucide-react-native';
+import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw, Hand } from 'lucide-react-native';
 import { VisionEventName } from '../../types';
 
 export const DashboardAccessible = () => {
@@ -27,9 +27,9 @@ export const DashboardAccessible = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleEyeEvent = async (name: VisionEventName) => {
+  const handleTestEvent = async (source: string, name: string) => {
     try {
-      await sendVisionEvent(name);
+      await sendVisionEvent(source, name);
     } catch {
       showToast(`Failed to send event: ${name}`, 'error');
     }
@@ -122,23 +122,43 @@ export const DashboardAccessible = () => {
 
       {/* Test Buttons */}
       <View style={styles.testSection}>
-        <Text style={styles.sectionTitle}>API Testing Controls</Text>
-        <View style={styles.testGrid}>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('look_left')}>
+        <Text style={styles.sectionTitle}>Test Eye Events</Text>
+        <View style={[styles.testGrid, { marginBottom: theme.spacing.lg }]}>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'look_left')}>
             <ArrowLeft color={theme.colors.text.primary} />
             <Text style={styles.testBtnText}>Left</Text>
           </Pressable>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('look_right')}>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'look_right')}>
             <ArrowRight color={theme.colors.text.primary} />
             <Text style={styles.testBtnText}>Right</Text>
           </Pressable>
-          <Pressable style={[styles.testButton, { backgroundColor: theme.colors.primaryDark }]} onPress={() => handleEyeEvent('short_blink')}>
+          <Pressable style={[styles.testButton, { backgroundColor: theme.colors.primaryDark }]} onPress={() => handleTestEvent('eye', 'short_blink')}>
             <Zap color={theme.colors.text.primary} />
             <Text style={styles.testBtnText}>Select</Text>
           </Pressable>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('long_blink')}>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('eye', 'long_blink')}>
             <RotateCcw color={theme.colors.text.primary} />
             <Text style={styles.testBtnText}>Back</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.sectionTitle}>Test Hand Events</Text>
+        <View style={styles.testGrid}>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'swipe_left')}>
+            <ArrowLeft color={theme.colors.text.primary} />
+            <Text style={styles.testBtnText}>Swipe Left</Text>
+          </Pressable>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'swipe_right')}>
+            <ArrowRight color={theme.colors.text.primary} />
+            <Text style={styles.testBtnText}>Swipe Right</Text>
+          </Pressable>
+          <Pressable style={[styles.testButton, { backgroundColor: theme.colors.primaryDark }]} onPress={() => handleTestEvent('hand', 'pinch')}>
+            <Hand color={theme.colors.text.primary} />
+            <Text style={styles.testBtnText}>Pinch</Text>
+          </Pressable>
+          <Pressable style={styles.testButton} onPress={() => handleTestEvent('hand', 'open_palm_hold')}>
+            <Hand color={theme.colors.text.primary} />
+            <Text style={styles.testBtnText}>Palm Hold</Text>
           </Pressable>
         </View>
       </View>

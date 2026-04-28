@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI, HTTPException
@@ -17,8 +18,11 @@ except ImportError:  # pragma: no cover
 
 app = FastAPI(
     title="Accessible Smart Home Modular API",
-    version="1.0.0",
-    description="Vision events -> user-defined mappings -> action execution -> smart device control.",
+    version="1.2.0",
+    description=(
+        "Eye/hand vision events -> control mode filtering -> "
+        "user-defined mappings -> UI action execution -> smart device control."
+    ),
 )
 
 app.add_middleware(
@@ -35,8 +39,20 @@ app.add_middleware(
 # =========================
 
 class VisionEventRequest(BaseModel):
-    source: str = Field(..., examples=["eye"])
-    name: str = Field(..., examples=["look_left", "look_right", "short_blink", "long_blink"])
+    source: str = Field(..., examples=["eye", "hand"])
+    name: str = Field(
+        ...,
+        examples=[
+            "look_left",
+            "look_right",
+            "short_blink",
+            "long_blink",
+            "swipe_left",
+            "swipe_right",
+            "pinch",
+            "open_palm_hold",
+        ],
+    )
     confidence: float | None = None
     timestamp: float | str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -47,7 +63,11 @@ class MappingUpdateRequest(BaseModel):
 
 
 class ActionExecuteRequest(BaseModel):
-    action: str = Field(..., examples=["NAV_LEFT", "SELECT", "LIGHT_ON"])
+    action: str = Field(..., examples=["NAV_LEFT", "SELECT", "CONFIRM", "LIGHT_ON"])
+
+
+class ControlModeUpdateRequest(BaseModel):
+    control_mode: str = Field(..., examples=["eye_only", "hand_only", "hybrid"])
 
 
 # =========================
@@ -61,17 +81,36 @@ controller = SmartHomeDeviceController()
 # Supported Inputs / Actions
 # =========================
 
+SUPPORTED_EVENT_SOURCES = {
+    "eye",
+    "hand",
+}
+
+SUPPORTED_CONTROL_MODES = {
+    "eye_only",
+    "hand_only",
+    "hybrid",
+}
+
 SUPPORTED_VISION_EVENTS = {
-    "look_left",
-    "look_right",
-    "short_blink",
-    "long_blink",
+    # Eye events
+    "eye:look_left",
+    "eye:look_right",
+    "eye:short_blink",
+    "eye:long_blink",
+
+    # Hand events
+    "hand:swipe_left",
+    "hand:swipe_right",
+    "hand:pinch",
+    "hand:open_palm_hold",
 }
 
 SUPPORTED_ACTIONS = {
     "NAV_LEFT",
     "NAV_RIGHT",
     "SELECT",
+    "CONFIRM",
     "BACK",
     "LIGHT_ON",
     "LIGHT_OFF",
@@ -88,11 +127,24 @@ DEVICE_ACTIONS = {
 
 
 # Default user-editable mapping
+#
+# Format:
+#   source:name -> action
+#
+# Examples:
+#   eye:look_left       -> NAV_LEFT
+#   hand:swipe_right    -> NAV_RIGHT
+#   hand:pinch          -> SELECT
 mapping_store: dict[str, str] = {
-    "look_left": "NAV_LEFT",
-    "look_right": "NAV_RIGHT",
-    "short_blink": "SELECT",
-    "long_blink": "BACK",
+    "eye:look_left": "NAV_LEFT",
+    "eye:look_right": "NAV_RIGHT",
+    "eye:short_blink": "SELECT",
+    "eye:long_blink": "BACK",
+
+    "hand:swipe_left": "NAV_LEFT",
+    "hand:swipe_right": "NAV_RIGHT",
+    "hand:pinch": "SELECT",
+    "hand:open_palm_hold": "CONFIRM",
 }
 
 
@@ -102,8 +154,20 @@ mapping_store: dict[str, str] = {
 
 system_state: dict[str, Any] = {
     "last_vision_event": None,
+    "last_ignored_vision_event": None,
     "last_action": None,
     "last_command": None,
+
+    # Control mode state
+    # eye_only  -> only eye events are processed
+    # hand_only -> only hand events are processed
+    # hybrid    -> both eye and hand events are processed
+    "control_mode": "hybrid",
+    "enabled_sources": {
+        "eye": True,
+        "hand": True,
+    },
+
     "device_status": {
         "light": "off",
         "plug": "off",
@@ -134,8 +198,65 @@ def normalize_vision_event_name(raw: str) -> str:
     return raw.strip().lower()
 
 
+def normalize_event_source(raw: str) -> str:
+    return raw.strip().lower()
+
+
 def normalize_action_name(raw: str) -> str:
     return raw.strip().upper()
+
+
+def normalize_control_mode(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def build_event_key(source: str, name: str) -> str:
+    normalized_source = normalize_event_source(source)
+    normalized_name = normalize_vision_event_name(name)
+    return f"{normalized_source}:{normalized_name}"
+
+
+def legacy_event_key(name: str) -> str:
+    """
+    Backward compatibility for old clients that only sent eye event names.
+
+    Example:
+        look_left -> eye:look_left
+    """
+    normalized_name = normalize_vision_event_name(name)
+    return f"eye:{normalized_name}"
+
+
+def apply_control_mode(control_mode: str) -> None:
+    control_mode = normalize_control_mode(control_mode)
+
+    if control_mode not in SUPPORTED_CONTROL_MODES:
+        raise HTTPException(status_code=400, detail=f"Unsupported control mode: {control_mode}")
+
+    if control_mode == "eye_only":
+        system_state["enabled_sources"] = {
+            "eye": True,
+            "hand": False,
+        }
+
+    elif control_mode == "hand_only":
+        system_state["enabled_sources"] = {
+            "eye": False,
+            "hand": True,
+        }
+
+    elif control_mode == "hybrid":
+        system_state["enabled_sources"] = {
+            "eye": True,
+            "hand": True,
+        }
+
+    system_state["control_mode"] = control_mode
+
+
+def is_source_enabled(source: str) -> bool:
+    enabled_sources = system_state.get("enabled_sources", {})
+    return bool(enabled_sources.get(source, False))
 
 
 def get_current_items() -> list[str]:
@@ -352,6 +473,11 @@ def execute_action(action: str, trigger: str = "manual", trigger_detail: str | N
     elif action == "SELECT":
         result = handle_select()
 
+    elif action == "CONFIRM":
+        # CONFIRM currently behaves like SELECT.
+        # This lets open_palm_hold confirm the selected UI item/action.
+        result = handle_select()
+
     elif action == "BACK":
         handle_back()
         result = {
@@ -395,6 +521,8 @@ def health() -> dict[str, Any]:
     return {
         "success": True,
         "device_controller_mode": controller.mode(),
+        "control_mode": system_state["control_mode"],
+        "enabled_sources": system_state["enabled_sources"],
         "ui_state": build_ui_snapshot(),
     }
 
@@ -410,11 +538,47 @@ def status() -> dict[str, Any]:
     }
 
 
+@app.get("/control-mode")
+def get_control_mode() -> dict[str, Any]:
+    return {
+        "success": True,
+        "control_mode": system_state["control_mode"],
+        "enabled_sources": system_state["enabled_sources"],
+        "supported_control_modes": sorted(SUPPORTED_CONTROL_MODES),
+    }
+
+
+@app.put("/control-mode")
+def update_control_mode(payload: ControlModeUpdateRequest) -> dict[str, Any]:
+    control_mode = normalize_control_mode(payload.control_mode)
+    apply_control_mode(control_mode)
+
+    return {
+        "success": True,
+        "message": "Control mode updated successfully",
+        "control_mode": system_state["control_mode"],
+        "enabled_sources": system_state["enabled_sources"],
+    }
+
+
 @app.get("/vision-event-types")
 def vision_event_types() -> dict[str, Any]:
     return {
         "success": True,
         "vision_event_types": sorted(SUPPORTED_VISION_EVENTS),
+        "supported_sources": sorted(SUPPORTED_EVENT_SOURCES),
+        "grouped": {
+            "eye": sorted(
+                event.split(":", 1)[1]
+                for event in SUPPORTED_VISION_EVENTS
+                if event.startswith("eye:")
+            ),
+            "hand": sorted(
+                event.split(":", 1)[1]
+                for event in SUPPORTED_VISION_EVENTS
+                if event.startswith("hand:")
+            ),
+        },
     }
 
 
@@ -441,17 +605,29 @@ def update_mappings(payload: MappingUpdateRequest) -> dict[str, Any]:
     updated: dict[str, str] = {}
 
     for raw_event, raw_action in payload.mappings.items():
-        event_name = normalize_vision_event_name(raw_event)
+        raw_event_normalized = normalize_vision_event_name(raw_event)
+
+        # New format:
+        #   hand:swipe_right
+        #   eye:look_left
+        #
+        # Backward compatibility:
+        #   look_left -> eye:look_left
+        if ":" in raw_event_normalized:
+            event_key = raw_event_normalized
+        else:
+            event_key = legacy_event_key(raw_event_normalized)
+
         action_name = normalize_action_name(raw_action)
 
-        if event_name not in SUPPORTED_VISION_EVENTS:
-            raise HTTPException(status_code=400, detail=f"Unsupported vision event: {event_name}")
+        if event_key not in SUPPORTED_VISION_EVENTS:
+            raise HTTPException(status_code=400, detail=f"Unsupported vision event: {event_key}")
 
         if action_name not in SUPPORTED_ACTIONS:
             raise HTTPException(status_code=400, detail=f"Unsupported action: {action_name}")
 
-        mapping_store[event_name] = action_name
-        updated[event_name] = action_name
+        mapping_store[event_key] = action_name
+        updated[event_key] = action_name
 
     return {
         "success": True,
@@ -477,28 +653,74 @@ def execute_action_endpoint(payload: ActionExecuteRequest) -> dict[str, Any]:
 
 @app.post("/vision-events")
 def receive_vision_event(payload: VisionEventRequest) -> dict[str, Any]:
+    source = normalize_event_source(payload.source)
     event_name = normalize_vision_event_name(payload.name)
+    event_key = build_event_key(source, event_name)
 
-    if event_name not in SUPPORTED_VISION_EVENTS:
-        raise HTTPException(status_code=400, detail=f"Unsupported vision event: {event_name}")
+    if source not in SUPPORTED_EVENT_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Unsupported event source: {source}")
+
+    if event_key not in SUPPORTED_VISION_EVENTS:
+        raise HTTPException(status_code=400, detail=f"Unsupported vision event: {event_key}")
+
+    # Control mode filtering:
+    # Example:
+    #   control_mode = eye_only
+    #   incoming source = hand
+    #   -> event is accepted but ignored; no UI action is executed.
+    if not is_source_enabled(source):
+        ignored_event = {
+            "type": "vision_event",
+            "source": source,
+            "name": event_name,
+            "event_key": event_key,
+            "timestamp": now_iso(),
+            "original_timestamp": payload.timestamp,
+            "confidence": payload.confidence,
+            "metadata": payload.metadata,
+            "ignored": True,
+            "ignore_reason": "Event source is disabled by current control mode",
+        }
+
+        system_state["last_vision_event"] = ignored_event
+        system_state["last_ignored_vision_event"] = ignored_event
+
+        return {
+            "success": True,
+            "ignored": True,
+            "reason": "Event source is disabled by current control mode",
+            "control_mode": system_state["control_mode"],
+            "enabled_sources": system_state["enabled_sources"],
+            "vision_event": {
+                "source": source,
+                "name": event_name,
+                "event_key": event_key,
+            },
+            "mapped_action": None,
+            "ui_state": build_ui_snapshot(),
+            "device_status": system_state["device_status"],
+        }
 
     system_state["last_vision_event"] = {
         "type": "vision_event",
-        "source": payload.source,
+        "source": source,
         "name": event_name,
+        "event_key": event_key,
         "timestamp": now_iso(),
         "original_timestamp": payload.timestamp,
         "confidence": payload.confidence,
         "metadata": payload.metadata,
+        "ignored": False,
     }
 
-    mapped_action = mapping_store.get(event_name)
+    mapped_action = mapping_store.get(event_key)
     if not mapped_action:
         return {
             "success": True,
             "vision_event": {
-                "source": payload.source,
+                "source": source,
                 "name": event_name,
+                "event_key": event_key,
             },
             "mapped_action": None,
             "message": "No action mapped for this vision event",
@@ -509,14 +731,18 @@ def receive_vision_event(payload: VisionEventRequest) -> dict[str, Any]:
     action_result = execute_action(
         mapped_action,
         trigger="vision_event",
-        trigger_detail=event_name,
+        trigger_detail=event_key,
     )
 
     return {
         "success": True,
+        "ignored": False,
+        "control_mode": system_state["control_mode"],
+        "enabled_sources": system_state["enabled_sources"],
         "vision_event": {
-            "source": payload.source,
+            "source": source,
             "name": event_name,
+            "event_key": event_key,
         },
         "mapped_action": mapped_action,
         "action_result": action_result,
