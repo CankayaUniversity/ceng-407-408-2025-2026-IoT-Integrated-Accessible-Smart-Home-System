@@ -2,6 +2,22 @@ import json
 from urllib import error, request
 
 
+def fetch_control_mode(api_url: str, timeout: float = 2.0) -> dict | None:
+    """GET the backend's current control_mode + enabled_sources.
+
+    Returns parsed JSON on success, None on any failure. Callers should keep
+    using the last known mode when this returns None — a transient network
+    blip should not silently disable a worker.
+    """
+    try:
+        with request.urlopen(api_url, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body) if body else None
+    except (error.URLError, error.HTTPError, ValueError):
+        return None
+    except Exception:  # pragma: no cover
+        return None
+
 
 def send_event(api_url: str, payload: dict) -> dict | None:
     data = json.dumps(payload).encode("utf-8")

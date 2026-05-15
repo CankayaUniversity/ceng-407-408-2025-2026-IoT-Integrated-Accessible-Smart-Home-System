@@ -2,6 +2,7 @@ export const colors = {
   background: '#0B0D14',
   surface: '#151821',
   surfaceHighlight: '#222634',
+  surfaceHighlightPressed: '#2a3344',
   primary: '#E07A5F', // copper / peach
   primaryLight: '#F29F8D',
   primaryDark: '#B35D46',
@@ -79,7 +80,7 @@ export const typography = {
 
 // Accessibility-specific design tokens
 export const accessibility = {
-  cardMinHeight: 80,
+  cardMinHeight: 96,
   focusBorderWidth: 3,
   largeFontScale: 1.25,
 };

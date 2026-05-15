@@ -20,7 +20,7 @@ const MetricRow = ({ icon, label, value, statusColor }: any) => (
 );
 
 export const SystemStatusScreen = () => {
-  const { systemMetrics, backendStatus, isBackendConnected, fetchBackendStatus, mappings } = useStore();
+  const { systemMetrics, backendStatus, isBackendConnected, fetchBackendStatus, mappings, controlMode, enabledSources } = useStore();
 
   useEffect(() => {
     fetchBackendStatus();
@@ -56,6 +56,19 @@ export const SystemStatusScreen = () => {
               value={backendStatus?.device_controller_mode?.toUpperCase() || 'UNKNOWN'} 
               statusColor={theme.colors.text.secondary}
             />
+            <View style={styles.divider} />
+            <MetricRow 
+              icon={<Activity size={20} color={theme.colors.text.secondary} />} 
+              label="Control Mode" 
+              value={controlMode.toUpperCase()} 
+              statusColor={theme.colors.primary}
+            />
+            <View style={styles.divider} />
+            <MetricRow 
+              icon={<Eye size={20} color={theme.colors.text.secondary} />} 
+              label="Enabled Sources" 
+              value={`Eye: ${enabledSources?.eye ? 'ON' : 'OFF'} | Hand: ${enabledSources?.hand ? 'ON' : 'OFF'}`} 
+            />
           </Card>
 
           {/* Last Vision Event */}
@@ -66,7 +79,7 @@ export const SystemStatusScreen = () => {
                 <MetricRow 
                   icon={<Eye size={20} color={theme.colors.primary} />} 
                   label="Event" 
-                  value={systemState.last_vision_event.name} 
+                  value={systemState.last_vision_event.event_key || systemState.last_vision_event.name} 
                 />
                 <View style={styles.divider} />
                 <MetricRow 
@@ -74,6 +87,17 @@ export const SystemStatusScreen = () => {
                   label="Source" 
                   value={systemState.last_vision_event.source} 
                 />
+                {systemState.last_vision_event.ignored && (
+                  <>
+                    <View style={styles.divider} />
+                    <MetricRow 
+                      icon={<Activity size={20} color={theme.colors.warning} />} 
+                      label="Status" 
+                      value={`IGNORED: ${systemState.last_vision_event.ignore_reason || 'Source disabled'}`} 
+                      statusColor={theme.colors.warning}
+                    />
+                  </>
+                )}
                 <View style={styles.divider} />
                 <Text style={styles.timestampText}>
                   {new Date(systemState.last_vision_event.timestamp).toLocaleTimeString()}

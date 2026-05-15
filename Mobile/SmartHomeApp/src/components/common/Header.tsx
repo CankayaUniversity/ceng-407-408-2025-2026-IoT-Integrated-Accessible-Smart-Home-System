@@ -5,13 +5,13 @@ import { User, Wifi, WifiOff } from 'lucide-react-native';
 import { useStore } from '../../store/useStore';
 
 export const Header = () => {
-  const { isBackendConnected } = useStore();
+  const { isBackendConnected, userName } = useStore();
 
   return (
     <View style={styles.container}>
       <View>
-        <Text style={styles.greeting}>Welcome Home</Text>
-        <Text style={styles.title}>Smart Home</Text>
+        <Text style={styles.greeting}>Hoşgeldiniz,</Text>
+        <Text style={styles.title}>{userName}</Text>
       </View>
       <View style={styles.rightSection}>
         <View style={styles.connectionBadge}>

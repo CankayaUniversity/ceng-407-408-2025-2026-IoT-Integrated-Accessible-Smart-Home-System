@@ -1,10 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, ActivityIndicator, Pressable, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Text, ActivityIndicator, Pressable, ScrollView, Animated } from 'react-native';
 import { useStore } from '../../store/useStore';
 import { Card } from '../../components/common/Card';
 import { theme } from '../../theme';
-import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw } from 'lucide-react-native';
-import { VisionEventName } from '../../types';
+import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw, Hand } from 'lucide-react-native';
+import { Feedback, VisionEventName } from '../../types';
+
+type FeedbackBanner = { message: string; severity: Feedback['severity'] };
+
+const BANNER_DURATION_MS = 2500;
+
+const SEVERITY_COLORS = (theme: any): Record<Feedback['severity'], string> => ({
+  success: theme.colors.success,
+  error: theme.colors.error,
+  warning: theme.colors.warning,
+  info: theme.colors.primary,
+});
 
 export const DashboardAccessible = () => {
   const {
@@ -15,7 +26,12 @@ export const DashboardAccessible = () => {
     sendVisionEvent,
     mappings,
   } = useStore();
+
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [banner, setBanner] = useState<FeedbackBanner | null>(null);
+
+  const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shownTimestamps = useRef(new Set<string>());
 
   useEffect(() => {
     const load = async () => {
@@ -27,11 +43,33 @@ export const DashboardAccessible = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const handleEyeEvent = async (name: VisionEventName) => {
+  // Catch real Pi gestures from backend poll
+  useEffect(() => {
+    const lastAction = backendStatus?.system_state?.last_action;
+    const ts = lastAction?.timestamp;
+    if (!ts || shownTimestamps.current.has(ts)) return;
+    if (lastAction.feedback?.message) {
+      shownTimestamps.current.add(ts);
+      showBanner(lastAction.feedback.message, lastAction.feedback.severity ?? 'info');
+    }
+  }, [backendStatus?.system_state?.last_action?.timestamp]);
+
+  const showBanner = (message: string, severity: Feedback['severity'] = 'success') => {
+    if (bannerTimeout.current) clearTimeout(bannerTimeout.current);
+    setBanner({ message, severity });
+    bannerTimeout.current = setTimeout(() => setBanner(null), BANNER_DURATION_MS);
+  };
+
+  const handleTestEvent = async (source: string, name: string) => {
     try {
-      await sendVisionEvent(name);
+      const response = await sendVisionEvent(source, name);
+      if (response?.feedback?.message) {
+        const ts = backendStatus?.system_state?.last_action?.timestamp;
+        if (ts) shownTimestamps.current.add(ts);
+        showBanner(response.feedback.message, response.feedback.severity);
+      }
     } catch {
-      showToast(`Failed to send event: ${name}`, 'error');
+      showToast(`Komut gönderilemedi: ${name}`, 'error');
     }
   };
 
@@ -39,7 +77,7 @@ export const DashboardAccessible = () => {
     return (
       <View style={[styles.container, styles.centered]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
-        <Text style={styles.loadingText}>Connecting to Backend...</Text>
+        <Text style={styles.loadingText}>Backend'e bağlanılıyor...</Text>
       </View>
     );
   }
@@ -47,10 +85,10 @@ export const DashboardAccessible = () => {
   if (!backendStatus) {
     return (
       <View style={[styles.container, styles.centered]}>
-        <Text style={styles.errorText}>No connection to API</Text>
+        <Text style={styles.errorText}>API bağlantısı yok</Text>
         <Pressable style={styles.retryBtn} onPress={fetchBackendStatus}>
           <RotateCcw size={20} color={theme.colors.text.primary} />
-          <Text style={styles.retryText}>Retry</Text>
+          <Text style={styles.retryText}>Tekrar Dene</Text>
         </Pressable>
       </View>
     );
@@ -58,95 +96,172 @@ export const DashboardAccessible = () => {
 
   const { ui_state, system_state } = backendStatus;
 
-  return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 100 }}>
-      {/* Title Header from backend current_screen */}
-      <View style={styles.header}>
-        <Eye size={28} color={theme.colors.primary} />
-        <Text style={styles.title}>{ui_state.current_screen.replace(/_/g, ' ').toUpperCase()}</Text>
-      </View>
+  const eyeButtons: { event: VisionEventName; icon: React.ReactNode; label: string }[] = [
+    { event: 'eye:look_left',   icon: <ArrowLeft  color={theme.colors.text.primary} size={28} />, label: 'Sol Bakış'    },
+    { event: 'eye:look_right',  icon: <ArrowRight color={theme.colors.text.primary} size={28} />, label: 'Sağ Bakış'   },
+    { event: 'eye:short_blink', icon: <Zap        color={theme.colors.text.primary} size={28} />, label: 'Kısa Kırpma' },
+    { event: 'eye:long_blink',  icon: <RotateCcw  color={theme.colors.text.primary} size={28} />, label: 'Uzun Kırpma' },
+  ];
 
-      {/* Backend-Driven Menu Items — Horizontal for gaze-friendliness */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.menuScroll}
-        style={styles.menuScrollOuter}
-      >
-        {ui_state.items.map((item) => {
-          const isSelected = ui_state.selected_item === item;
-          return (
-            <Card
-              key={item}
-              style={[styles.menuItem, isSelected && styles.menuItemSelected]}
-              focused={isSelected}
-            >
-              <Text style={[styles.itemText, isSelected && styles.itemTextSelected]}>
-                {item}
-              </Text>
-              {isSelected && <Zap size={20} color={theme.colors.primary} />}
-            </Card>
-          );
-        })}
+  const handButtons: { event: VisionEventName; icon: React.ReactNode; label: string }[] = [
+    { event: 'hand:swipe_left',      icon: <ArrowLeft  color={theme.colors.text.primary} size={28} />, label: 'Sola Kaydır'  },
+    { event: 'hand:swipe_right',     icon: <ArrowRight color={theme.colors.text.primary} size={28} />, label: 'Sağa Kaydır' },
+    { event: 'hand:pinch',           icon: <Hand       color={theme.colors.text.primary} size={28} />, label: 'Parmak Ucu'  },
+    { event: 'hand:open_palm_hold',  icon: <Hand       color={theme.colors.text.primary} size={28} />, label: 'Açık Avuç'   },
+  ];
+
+  // Animated banner control
+  const bannerAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (banner) {
+      Animated.timing(bannerAnim, { toValue: 1, duration: 250, useNativeDriver: true }).start();
+    } else {
+      Animated.timing(bannerAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+    }
+  }, [banner, bannerAnim]);
+
+  return (
+    <View style={styles.wrapper}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Eye size={28} color={theme.colors.primary} />
+          <Text style={styles.title}>{ui_state.current_screen.replace(/_/g, ' ').toUpperCase()}</Text>
+        </View>
+
+        {/* Backend-Driven Menu Items */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.menuScroll}
+          style={styles.menuScrollOuter}
+        >
+          {ui_state.items.map((item) => {
+            const isSelected = ui_state.selected_item === item;
+            return (
+              <Card
+                key={item}
+                style={[styles.menuItem, isSelected && styles.menuItemSelected]}
+                focused={isSelected}
+              >
+                <Text style={[styles.itemText, isSelected && styles.itemTextSelected]}>
+                  {item}
+                </Text>
+                {isSelected && <Zap size={20} color={theme.colors.primary} />}
+              </Card>
+            );
+          })}
+        </ScrollView>
+
+        {/* Active Mappings */}
+        <View style={styles.mappingSection}>
+          <Text style={styles.sectionTitle}>Aktif Eşlemeler</Text>
+          <View style={styles.mappingGrid}>
+            {(Object.entries(mappings) as [VisionEventName, string][]).map(([event, action]) => (
+              <View key={event} style={styles.mappingChip}>
+                <Text style={styles.mappingEvent}>{event.replace(/_/g, ' ')}</Text>
+                <Text style={styles.mappingArrow}>→</Text>
+                <Text style={styles.mappingAction}>{action}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Device Status */}
+        <View style={styles.statusSection}>
+          <Text style={styles.sectionTitle}>Cihazlar</Text>
+          <View style={styles.deviceRow}>
+            {Object.entries(system_state.device_status).map(([name, status]) => (
+              <Card key={name} style={styles.deviceIndicator}>
+                <Text style={styles.deviceLabel}>{name === 'light' ? 'Işık' : name === 'plug' ? 'Priz' : name}</Text>
+                <Power
+                  size={24}
+                  color={status === 'on' ? theme.colors.success : theme.colors.text.secondary}
+                />
+              </Card>
+            ))}
+          </View>
+        </View>
+
+        {/* Test Buttons */}
+        <View style={styles.testSection}>
+          <Text style={styles.sectionTitle}>Göz Komutları</Text>
+          <View style={[styles.testGrid, { marginBottom: theme.spacing.lg }]}>
+            {eyeButtons.map(({ event, icon, label }) => {
+              const [source, name] = event.split(':');
+              const mappedAction = mappings[event] ?? '—';
+              return (
+                <Pressable
+                  key={event}
+                  onPress={() => handleTestEvent(source, name)}
+                  style={({ pressed }) => [
+                    styles.testButton,
+                    pressed && styles.testButtonPressed,
+                  ]}
+                >
+                  {icon}
+                  <View style={styles.testBtnLabels}>
+                    <Text style={styles.testBtnGesture}>{label}</Text>
+                    <Text style={styles.testBtnAction}>{mappedAction}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Text style={styles.sectionTitle}>El Komutları</Text>
+          <View style={styles.testGrid}>
+            {handButtons.map(({ event, icon, label }) => {
+              const [source, name] = event.split(':');
+              const mappedAction = mappings[event] ?? '—';
+              return (
+                <Pressable
+                  key={event}
+                  onPress={() => handleTestEvent(source, name)}
+                  style={({ pressed }) => [
+                    styles.testButton,
+                    pressed && styles.testButtonPressed,
+                  ]}
+                >
+                  {icon}
+                  <View style={styles.testBtnLabels}>
+                    <Text style={styles.testBtnGesture}>{label}</Text>
+                    <Text style={styles.testBtnAction}>{mappedAction}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       </ScrollView>
 
-      {/* Active Mapping Display */}
-      <View style={styles.mappingSection}>
-        <Text style={styles.sectionTitle}>Active Mappings</Text>
-        <View style={styles.mappingGrid}>
-          {(Object.entries(mappings) as [VisionEventName, string][]).map(([event, action]) => (
-            <View key={event} style={styles.mappingChip}>
-              <Text style={styles.mappingEvent}>{event.replace(/_/g, ' ')}</Text>
-              <Text style={styles.mappingArrow}>→</Text>
-              <Text style={styles.mappingAction}>{action}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      {/* Device Status */}
-      <View style={styles.statusSection}>
-        <Text style={styles.sectionTitle}>Physical Devices</Text>
-        <View style={styles.deviceRow}>
-          {Object.entries(system_state.device_status).map(([name, status]) => (
-            <Card key={name} style={styles.deviceIndicator}>
-              <Text style={styles.deviceLabel}>{name.charAt(0).toUpperCase() + name.slice(1)}</Text>
-              <Power
-                size={24}
-                color={status === 'on' ? theme.colors.success : theme.colors.text.secondary}
-              />
-            </Card>
-          ))}
-        </View>
-      </View>
-
-      {/* Test Buttons */}
-      <View style={styles.testSection}>
-        <Text style={styles.sectionTitle}>API Testing Controls</Text>
-        <View style={styles.testGrid}>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('look_left')}>
-            <ArrowLeft color={theme.colors.text.primary} />
-            <Text style={styles.testBtnText}>Left</Text>
-          </Pressable>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('look_right')}>
-            <ArrowRight color={theme.colors.text.primary} />
-            <Text style={styles.testBtnText}>Right</Text>
-          </Pressable>
-          <Pressable style={[styles.testButton, { backgroundColor: theme.colors.primaryDark }]} onPress={() => handleEyeEvent('short_blink')}>
-            <Zap color={theme.colors.text.primary} />
-            <Text style={styles.testBtnText}>Select</Text>
-          </Pressable>
-          <Pressable style={styles.testButton} onPress={() => handleEyeEvent('long_blink')}>
-            <RotateCcw color={theme.colors.text.primary} />
-            <Text style={styles.testBtnText}>Back</Text>
-          </Pressable>
-        </View>
-      </View>
-    </ScrollView>
+      {/* Feedback Banner */}
+      <Animated.View
+        pointerEvents={banner ? 'auto' : 'none'}
+        style={[
+          styles.banner,
+          {
+            backgroundColor: SEVERITY_COLORS(theme)[banner?.severity ?? 'info'],
+            opacity: bannerAnim,
+            transform: [
+              {
+                translateY: (bannerAnim as any).interpolate({ inputRange: [0, 1], outputRange: [24, 0] }),
+              },
+            ],
+          },
+        ]}
+      >
+        {banner && <Text style={styles.bannerText}>{banner.message}</Text>}
+      </Animated.View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  wrapper: {
+    flex: 1,
+  },
   container: {
     flex: 1,
     paddingVertical: theme.spacing.md,
@@ -188,7 +303,6 @@ const styles = StyleSheet.create({
     color: theme.colors.text.primary,
     marginLeft: theme.spacing.md,
   },
-  // Horizontal menu
   menuScrollOuter: {
     marginBottom: theme.spacing.xl,
   },
@@ -223,7 +337,6 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
   },
-  // Mapping display
   mappingSection: {
     marginBottom: theme.spacing.xl,
   },
@@ -263,7 +376,6 @@ const styles = StyleSheet.create({
     color: theme.colors.primaryLight,
     fontWeight: '600',
   },
-  // Devices
   statusSection: {
     marginBottom: theme.spacing.xxl,
   },
@@ -282,7 +394,6 @@ const styles = StyleSheet.create({
     ...theme.typography.h3,
     color: theme.colors.text.primary,
   },
-  // Test buttons
   testSection: {
     marginTop: theme.spacing.lg,
     paddingTop: theme.spacing.xl,
@@ -299,15 +410,50 @@ const styles = StyleSheet.create({
     width: '47%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     padding: theme.spacing.lg,
     backgroundColor: theme.colors.surfaceHighlight,
     borderRadius: theme.radius.lg,
     gap: theme.spacing.sm,
   },
-  testBtnText: {
-    ...theme.typography.bodyLarge,
-    fontWeight: 'bold',
+  testButtonPressed: {
+    backgroundColor: theme.colors.surfaceHighlightPressed,
+  },
+  testBtnLabels: {
+    flexDirection: 'column',
+    gap: 2,
+  },
+  testBtnGesture: {
+    ...theme.typography.body,
+    fontWeight: '600',
     color: theme.colors.text.primary,
-  }
+  },
+  testBtnAction: {
+    ...theme.typography.caption,
+    color: theme.colors.primaryLight,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  // Feedback banner
+  banner: {
+    position: 'absolute',
+    bottom: 24,
+    left: 16,
+    right: 16,
+    borderRadius: theme.radius.lg,
+    paddingVertical: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.xl,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  bannerText: {
+    ...theme.typography.h3,
+    color: '#ffffff',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });
+
+export default DashboardAccessible;

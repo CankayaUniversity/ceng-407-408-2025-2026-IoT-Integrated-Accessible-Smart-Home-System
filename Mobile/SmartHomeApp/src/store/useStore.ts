@@ -7,6 +7,9 @@ import {
   BackendStatusResponse,
   EventActionMapping,
   VisionEventName,
+  ControlMode,
+  EnabledSources,
+  VisionEventResponse,
 } from '../types';
 import {
   mockDevices,
@@ -25,7 +28,10 @@ import {
   updateMappings as updateMappingsApi,
   sendVisionEvent as sendVisionEventApi,
   executeAction as executeActionApi,
+  fetchControlMode as fetchControlModeApi,
+  updateControlMode as updateControlModeApi,
 } from '../services/apiClient';
+import { speakFeedback } from '../services/feedbackService';
 
 interface AppState {
   // ── App Mode ──
@@ -54,11 +60,20 @@ interface AppState {
   supportedActions: string[];
   supportedVisionEvents: string[];
   isBackendConnected: boolean;
+  controlMode: ControlMode;
+  enabledSources: EnabledSources;
+  supportedControlModes: string[];
 
   // ── Feedback States ──
   isLoading: boolean;
   toastMessage: string | null;
   toastSeverity: 'info' | 'success' | 'warning' | 'error';
+  isVoiceFeedbackEnabled: boolean;
+  setVoiceFeedbackEnabled: (enabled: boolean) => void;
+  lastSpokenActionTimestamp: string | null;
+  // ── User
+  userName: string;
+  setUserName: (name: string) => void;
 
   // ── Actions ──
   toggleDeviceAsync: (id: string) => Promise<void>;
@@ -69,8 +84,10 @@ interface AppState {
   fetchBackendStatus: () => Promise<void>;
   fetchMappingsFromBackend: () => Promise<void>;
   updateMappingsOnBackend: (mappings: Partial<EventActionMapping>) => Promise<void>;
-  sendVisionEvent: (name: VisionEventName) => Promise<void>;
+  sendVisionEvent: (source: string, name: string) => Promise<VisionEventResponse>;
   executeActionOnBackend: (action: string) => Promise<void>;
+  fetchControlModeFromBackend: () => Promise<void>;
+  updateControlModeOnBackend: (mode: ControlMode) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -106,11 +123,20 @@ export const useStore = create<AppState>((set, get) => ({
   supportedActions: mockSupportedActions,
   supportedVisionEvents: mockSupportedVisionEvents,
   isBackendConnected: false,
+  controlMode: 'eye_only',
+  enabledSources: { eye: true, hand: false },
+  supportedControlModes: ['eye_only', 'hand_only'],
 
   // ── Feedback ──
   isLoading: false,
   toastMessage: null,
   toastSeverity: 'info',
+  isVoiceFeedbackEnabled: true,
+  setVoiceFeedbackEnabled: (enabled) => set({ isVoiceFeedbackEnabled: enabled }),
+  lastSpokenActionTimestamp: null,
+  // User
+  userName: 'Kullanıcı',
+  setUserName: (name: string) => set({ userName: name }),
   clearToast: () => set({ toastMessage: null }),
   showToast: (msg, severity) => set({ toastMessage: msg, toastSeverity: severity }),
 
@@ -145,15 +171,29 @@ export const useStore = create<AppState>((set, get) => ({
   fetchBackendStatus: async () => {
     try {
       const data = await fetchStatus();
+      const lastAction = data.system_state.last_action;
+      const prevTimestamp = get().lastSpokenActionTimestamp;
+
+      if (
+        lastAction?.feedback?.speak &&
+        lastAction.feedback.message &&
+        lastAction.timestamp !== prevTimestamp
+      ) {
+        speakFeedback(lastAction.feedback, get().isVoiceFeedbackEnabled);
+        set({ lastSpokenActionTimestamp: lastAction.timestamp });
+      }
+
       set({
         backendStatus: data,
         isBackendConnected: true,
         mappings: data.mappings,
+        controlMode: data.control_mode || get().controlMode,
+        enabledSources: data.enabled_sources || get().enabledSources,
         systemMetrics: {
           ...get().systemMetrics,
           apiStatus: 'online',
           lastEvent: data.system_state.last_vision_event?.name
-            ? `Gaze: ${data.system_state.last_vision_event.name}`
+            ? `${data.system_state.last_vision_event.source}: ${data.system_state.last_vision_event.name}`
             : get().systemMetrics.lastEvent,
           lastCommand: data.system_state.last_command?.command || get().systemMetrics.lastCommand,
         },
@@ -189,23 +229,74 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   // ── Backend: Send Vision Event ──
-  sendVisionEvent: async (name: VisionEventName) => {
+  sendVisionEvent: async (source: string, name: string) => {
     try {
-      const response = await sendVisionEventApi({ source: 'eye', name });
+      const response = await sendVisionEventApi({ source, name: name as VisionEventName });
       // Refresh status after event
       await get().fetchBackendStatus();
-    } catch {
+      if (response.feedback) {
+        speakFeedback(response.feedback, get().isVoiceFeedbackEnabled);
+      }
+      return response;
+    } catch (err: any) {
       get().showToast(`Failed to send event: ${name}`, 'error');
+      
+      const errData = err?.response?.data?.detail;
+      if (errData && typeof errData === 'object' && errData.feedback) {
+        speakFeedback(errData.feedback, get().isVoiceFeedbackEnabled);
+      } else {
+        speakFeedback({ message: 'Backend connection failed', severity: 'error', speak: true }, get().isVoiceFeedbackEnabled);
+      }
+      throw err;
     }
   },
 
   // ── Backend: Execute Action ──
   executeActionOnBackend: async (action: string) => {
     try {
-      await executeActionApi(action);
+      const response = await executeActionApi(action);
+      await get().fetchBackendStatus();
+      if (response.feedback) {
+        speakFeedback(response.feedback, get().isVoiceFeedbackEnabled);
+      }
+    } catch (err: any) {
+      get().showToast(`Failed to execute: ${action}`, 'error');
+      
+      const errData = err?.response?.data?.detail;
+      if (errData && typeof errData === 'object' && errData.feedback) {
+        speakFeedback(errData.feedback, get().isVoiceFeedbackEnabled);
+      } else {
+        speakFeedback({ message: 'Command failed', severity: 'error', speak: true }, get().isVoiceFeedbackEnabled);
+      }
+    }
+  },
+
+  // ── Backend: Fetch Control Mode ──
+  fetchControlModeFromBackend: async () => {
+    try {
+      const data = await fetchControlModeApi();
+      set({
+        controlMode: data.control_mode,
+        enabledSources: data.enabled_sources,
+        supportedControlModes: data.supported_control_modes || ['eye_only', 'hand_only'],
+      });
+    } catch {
+      // Silently fail or use status fallback
+    }
+  },
+
+  // ── Backend: Update Control Mode ──
+  updateControlModeOnBackend: async (mode: ControlMode) => {
+    try {
+      const data = await updateControlModeApi({ control_mode: mode });
+      set({
+        controlMode: data.control_mode,
+        enabledSources: data.enabled_sources,
+      });
+      get().showToast('Control mode updated', 'success');
       await get().fetchBackendStatus();
     } catch {
-      get().showToast(`Failed to execute: ${action}`, 'error');
+      get().showToast('Failed to update control mode', 'error');
     }
   },
 }));

@@ -1,12 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Switch } from 'react-native';
 import { useStore } from '../../store/useStore';
 import { SectionTitle } from '../../components/layout/SectionTitle';
 import { Card } from '../../components/common/Card';
 import { ModeSwitcher } from '../../components/controls/ModeSwitcher';
 import { theme } from '../../theme';
-import { Settings, HardDrive, Smartphone, Server, Eye, Activity } from 'lucide-react-native';
+import { Settings, HardDrive, Smartphone, Server, Eye, Activity, Sliders, Volume2 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { API_BASE_URL } from '../../config/api';
+import { ControlMode } from '../../types';
 
 type SubMenuItemProps = {
   title: string;
@@ -28,7 +30,14 @@ const SubMenuItem = ({ title, icon, onPress, subtitle }: SubMenuItemProps) => (
 );
 
 export const SettingsScreen = () => {
-  const { appMode } = useStore();
+  const { 
+    appMode, 
+    controlMode, 
+    supportedControlModes, 
+    updateControlModeOnBackend,
+    isVoiceFeedbackEnabled,
+    setVoiceFeedbackEnabled
+  } = useStore();
   const navigation = useNavigation<any>();
 
   return (
@@ -41,9 +50,41 @@ export const SettingsScreen = () => {
           <SectionTitle title="App Mode" />
           <ModeSwitcher />
 
+          {/* Control Mode */}
+          <SectionTitle title="Control Mode" />
+          <Card style={[styles.card, styles.controlModeCard]}>
+            {supportedControlModes.map((mode) => (
+              <TouchableOpacity
+                key={mode}
+                style={[styles.controlModeBtn, controlMode === mode && styles.controlModeBtnActive]}
+                onPress={() => updateControlModeOnBackend(mode as ControlMode)}
+              >
+                <Text style={[styles.controlModeText, controlMode === mode && styles.controlModeTextActive]}>
+                  {mode === 'eye_only' ? 'Eye Only' : 'Hand Only'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </Card>
+
           {/* Accessibility & Mapping */}
           <SectionTitle title="Accessibility" />
           <Card style={styles.card}>
+            <View style={styles.rowBetween}>
+              <View style={styles.rowLeft}>
+                <Volume2 color={theme.colors.primary} size={24} />
+                <View style={{marginLeft: theme.spacing.md}}>
+                  <Text style={styles.itemTitle}>Voice Feedback</Text>
+                  <Text style={styles.itemSubtitle}>Spoken device status & errors</Text>
+                </View>
+              </View>
+              <Switch
+                value={isVoiceFeedbackEnabled}
+                onValueChange={setVoiceFeedbackEnabled}
+                trackColor={{ false: theme.colors.surfaceHighlight, true: theme.colors.primary }}
+                thumbColor={theme.colors.text.inverse}
+              />
+            </View>
+            <View style={styles.divider} />
             <SubMenuItem 
               title="Mapping & Diagnostics" 
               subtitle="Customize eye-to-action mapping" 
@@ -64,7 +105,7 @@ export const SettingsScreen = () => {
           <Card style={styles.card}>
             <SubMenuItem 
               title="FastAPI Server Target" 
-              subtitle="http://192.168.1.46:8000" 
+              subtitle={API_BASE_URL} 
               icon={<Server color={theme.colors.primary} size={24} />} 
               onPress={() => {}}
             />
@@ -110,6 +151,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  rowBetween: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: theme.spacing.sm,
+  },
   itemTitle: {
     ...theme.typography.subtitle,
     color: theme.colors.text.primary,
@@ -128,5 +175,27 @@ const styles = StyleSheet.create({
     color: theme.colors.text.tertiary,
     textAlign: 'center',
     paddingVertical: theme.spacing.sm,
+  },
+  controlModeCard: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: theme.spacing.xs,
+  },
+  controlModeBtn: {
+    flex: 1,
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+    borderRadius: theme.radius.md,
+  },
+  controlModeBtnActive: {
+    backgroundColor: theme.colors.primaryDark,
+  },
+  controlModeText: {
+    ...theme.typography.body,
+    color: theme.colors.text.secondary,
+  },
+  controlModeTextActive: {
+    color: theme.colors.text.primary,
+    fontWeight: 'bold',
   }
 });
