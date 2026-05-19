@@ -44,6 +44,58 @@ class SmartHomeDeviceController:
             "is_on": info.device_on,
         }
 
+    async def _send_plug_command(self, host: str, turn_on: bool) -> dict[str, Any]:
+        from tapo import ApiClient  # type: ignore
+
+        client = ApiClient(self.username, self.password)
+        plug = await client.p100(host)
+
+        if turn_on:
+            await plug.on()
+        else:
+            await plug.off()
+
+        info = await plug.get_device_info()
+
+        return {
+            "mode": "tapo",
+            "applied": True,
+            "host": host,
+            "alias": info.nickname,
+            "is_on": info.device_on,
+        }
+
+    async def _set_light_color(
+        self,
+        host: str,
+        hue: int | None,
+        saturation: int | None,
+        brightness: int,
+        color_temperature: int | None,
+    ) -> dict[str, Any]:
+        from tapo import ApiClient  # type: ignore
+
+        client = ApiClient(self.username, self.password)
+        bulb = await client.l530(host)
+        await bulb.on()
+
+        if color_temperature is not None:
+            await bulb.set_color_temperature(color_temperature)
+        elif hue is not None and saturation is not None:
+            await bulb.set_hue_saturation(hue, saturation)
+
+        await bulb.set_brightness(max(1, min(100, brightness)))
+        info = await bulb.get_device_info()
+
+        return {
+            "mode": "tapo",
+            "applied": True,
+            "host": host,
+            "alias": info.nickname,
+            "is_on": info.device_on,
+            "brightness": brightness,
+        }
+
     async def execute_async(self, command: str) -> dict[str, Any]:
         if command == "LIGHT_ON":
             if not self.bulb_host:
@@ -58,11 +110,11 @@ class SmartHomeDeviceController:
         if command == "PLUG_ON":
             if not self.plug_host:
                 return {"mode": "mock", "applied": False, "reason": "SMART_PLUG_HOST is not configured"}
-            return {"mode": "mock", "applied": False, "reason": "Plug device not supported in current config"}
+            return await self._send_plug_command(self.plug_host, turn_on=True)
 
         if command == "PLUG_OFF":
             if not self.plug_host:
                 return {"mode": "mock", "applied": False, "reason": "SMART_PLUG_HOST is not configured"}
-            return {"mode": "mock", "applied": False, "reason": "Plug device not supported in current config"}
+            return await self._send_plug_command(self.plug_host, turn_on=False)
 
         return {"mode": "mock", "applied": False, "reason": f"No real device binding for command {command}"}

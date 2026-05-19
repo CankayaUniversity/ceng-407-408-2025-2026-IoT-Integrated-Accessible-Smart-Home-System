@@ -115,3 +115,19 @@ export const executeAction = async (
   const { data } = await apiClient.post('/actions/execute', { action });
   return data;
 };
+
+// ============================================================
+// POST /devices/light/color — Set bulb color & brightness
+// ============================================================
+
+export interface LightColorPayload {
+  hue?: number;
+  saturation?: number;
+  brightness: number;
+  color_temperature?: number;
+}
+
+export const setLightColor = async (payload: LightColorPayload): Promise<{ ok: boolean }> => {
+  const { data } = await apiClient.post('/devices/light/color', payload);
+  return data;
+};

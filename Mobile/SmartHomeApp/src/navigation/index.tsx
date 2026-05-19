@@ -13,6 +13,7 @@ import { SecurityScreen } from '../screens/security/SecurityScreen';
 import { SettingsScreen } from '../screens/settings/SettingsScreen';
 import { SystemStatusScreen } from '../screens/system/SystemStatusScreen';
 import { GestureControlScreen } from '../screens/gestures/GestureControlScreen';
+import { UserManagementScreen } from '../screens/settings/UserManagementScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -99,12 +100,22 @@ export const AppNavigator = () => {
             headerTintColor: theme.colors.text.primary,
           }}
         />
-        <Stack.Screen 
-          name="Gestures" 
-          component={GestureControlScreen} 
-          options={{ 
-            headerShown: true, 
-            title: "Mapping & Diagnostics", 
+        <Stack.Screen
+          name="Gestures"
+          component={GestureControlScreen}
+          options={{
+            headerShown: true,
+            title: "Mapping & Diagnostics",
+            headerStyle: { backgroundColor: theme.colors.surface },
+            headerTintColor: theme.colors.text.primary,
+          }}
+        />
+        <Stack.Screen
+          name="UserManagement"
+          component={UserManagementScreen}
+          options={{
+            headerShown: true,
+            title: "Kullanıcı Yönetimi",
             headerStyle: { backgroundColor: theme.colors.surface },
             headerTintColor: theme.colors.text.primary,
           }}

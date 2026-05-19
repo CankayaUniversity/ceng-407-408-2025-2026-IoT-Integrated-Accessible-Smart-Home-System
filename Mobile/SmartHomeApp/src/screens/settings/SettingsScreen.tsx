@@ -5,7 +5,7 @@ import { SectionTitle } from '../../components/layout/SectionTitle';
 import { Card } from '../../components/common/Card';
 import { ModeSwitcher } from '../../components/controls/ModeSwitcher';
 import { theme } from '../../theme';
-import { Settings, HardDrive, Smartphone, Server, Eye, Activity, Sliders, Volume2 } from 'lucide-react-native';
+import { Settings, HardDrive, Smartphone, Server, Eye, Activity, Sliders, Volume2, Users } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { API_BASE_URL } from '../../config/api';
 import { ControlMode } from '../../types';
@@ -92,10 +92,18 @@ export const SettingsScreen = () => {
               onPress={() => navigation.navigate('Gestures')}
             />
             <View style={styles.divider} />
-            <SubMenuItem 
-              title="System Status" 
-              subtitle="Backend metrics & device state" 
-              icon={<Activity color={theme.colors.text.secondary} size={24} />} 
+            <View style={styles.divider} />
+            <SubMenuItem
+              title="Kullanıcı Yönetimi"
+              subtitle="Yüz kayıt ve kullanıcı silme"
+              icon={<Users color={theme.colors.primary} size={24} />}
+              onPress={() => navigation.navigate('UserManagement')}
+            />
+            <View style={styles.divider} />
+            <SubMenuItem
+              title="System Status"
+              subtitle="Backend metrics & device state"
+              icon={<Activity color={theme.colors.text.secondary} size={24} />}
               onPress={() => navigation.navigate('System')}
             />
           </Card>

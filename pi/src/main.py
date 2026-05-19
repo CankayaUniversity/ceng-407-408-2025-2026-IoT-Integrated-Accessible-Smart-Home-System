@@ -37,6 +37,8 @@ import cv2
 import mediapipe as mp
 
 from camera.ip_camera import IPCameraStream
+import requests
+
 from config import (
     BACKEND_CONTROL_MODE_URL,
     BACKEND_EVENT_URL,
@@ -57,9 +59,16 @@ from config import (
     HAND_SWIPE_MIN_DURATION,
     HAND_POST_SWIPE_PINCH_BLOCK_SECONDS,
     HAND_INVERT_SWIPE,
+    FACE_AUTH_REQUIRED,
+    FACE_RECOGNITION_INTERVAL,
+    FACE_AUTH_GRACE_PERIOD,
+    FACE_DATA_PATH,
+    FACE_AUTH_URL,
+    BACKEND_EVENT_URL,
 )
 from events.publisher import publish_event
 from integration.api_client import fetch_control_mode, send_event
+from vision.face_recognizer import FaceRecognizer
 from vision.gesture_detector import GestureDetector, HandGestureDetector
 from vision.hand_tracker import HandTracker
 
@@ -81,6 +90,14 @@ _eye_enabled = threading.Event()
 _eye_enabled.set()
 _hand_enabled = threading.Event()
 _hand_enabled.set()
+
+# Face-based access control state.
+# _face_authorized is set when a known face is detected, cleared otherwise.
+# _last_authorized_time supports a grace period so a brief frame dropout
+# doesn't immediately block gesture commands.
+_face_authorized = threading.Event()
+_face_authorized.set()  # default: authorized until face loop decides otherwise
+_last_authorized_time: float = 0.0
 
 
 # =========================================================================
@@ -196,12 +213,215 @@ def _mode_poller() -> None:
         _stop_event.wait(CONTROL_MODE_POLL_SECONDS)
 
 
+def _post_face_auth(status: str, user: Optional[str] = None, confidence: Optional[float] = None) -> None:
+    """Notify backend about face auth state change. Fire-and-forget."""
+    if not SEND_EVENTS_TO_BACKEND:
+        return
+    try:
+        requests.post(
+            FACE_AUTH_URL,
+            json={"status": status, "user": user, "confidence": confidence},
+            timeout=2.0,
+        )
+    except Exception:
+        pass
+
+
 def _forward_event(event) -> None:
+    # Block gesture events when face auth is active and no known face has been authorized.
+    # Authorization is only revoked when a recognized-but-unknown face appears (not on "no face").
+    if FACE_AUTH_REQUIRED and not _face_authorized.is_set():
+        print(f"[FACE] Yetkisiz — event bloklandı: {event.source}:{event.name}")
+        return
+
     payload = publish_event(event)
     if SEND_EVENTS_TO_BACKEND:
         qsize = _event_queue.qsize()
         print(f"[QUEUE] kuyruğa eklendi: {payload['source']}:{payload['name']} (kuyruk boyutu: {qsize + 1})")
         _event_queue.put(payload)
+
+
+def _face_loop(frame_buffer: LatestFrameBuffer) -> None:
+    """Runs face recognition at a low frequency to authorize/block gesture events."""
+    global _last_authorized_time
+
+    if not FACE_AUTH_REQUIRED:
+        _face_authorized.set()
+        print("[FACE] FACE_AUTH_REQUIRED=false — yüz tanıma devre dışı, hep yetkili")
+        return
+
+    recognizer = FaceRecognizer(FACE_DATA_PATH)
+    if not recognizer.is_trained:
+        _face_authorized.set()
+        print("[FACE] Kayıtlı yüz yok — hep yetkili (önce enroll.py çalıştırın)")
+        return
+
+    _face_authorized.clear()  # start locked; first recognition will unlock
+    print(f"[FACE] Erişim kontrolü aktif — {FACE_RECOGNITION_INTERVAL}s aralıkla taranıyor")
+
+    last_id = 0
+    last_check = 0.0
+    # Consecutive-vote tracking: only acts after 2 agreeing results in a row.
+    # "No face in frame" (confidence > 900) resets the vote and keeps current state.
+    prev_result: Optional[str] = "__init__"
+    consecutive = 0
+
+    while not _stop_event.is_set():
+        now = time.time()
+        if now - last_check < FACE_RECOGNITION_INTERVAL:
+            time.sleep(0.1)
+            continue
+
+        frame, last_id = frame_buffer.get_if_newer(last_id)
+        if frame is None:
+            time.sleep(0.1)
+            continue
+
+        user, confidence = recognizer.recognize(frame)
+        last_check = time.time()
+
+        # No face in frame — keep current auth state, reset consecutive counter
+        if confidence > 900:
+            consecutive = 0
+            prev_result = "__init__"
+            continue
+
+        # Face present: track consecutive identical results
+        if user == prev_result:
+            consecutive += 1
+        else:
+            consecutive = 1
+            prev_result = user
+
+        print(f"[FACE] tanıma: {user or 'yetkisiz'} güven={confidence:.1f} ardışık={consecutive}")
+
+        # Only act after 2 consecutive agreeing results (reduces single-frame false positives)
+        if consecutive < 2:
+            continue
+
+        if user:
+            was_blocked = not _face_authorized.is_set()
+            _face_authorized.set()
+            _last_authorized_time = time.time()
+            if was_blocked:
+                print(f"[FACE] ✓ Yetkili: {user} (güven: {confidence:.1f})")
+                _post_face_auth("authorized", user, round(confidence, 1))
+        else:
+            was_authorized = _face_authorized.is_set()
+            _face_authorized.clear()
+            if was_authorized:
+                print(f"[FACE] ✗ Yetkisiz — tanınmayan yüz (güven: {confidence:.1f})")
+                _post_face_auth("unauthorized")
+
+
+def _enroll_loop(frame_buffer: LatestFrameBuffer) -> None:
+    """Polls backend for enrollment requests and captures face frames."""
+    if not SEND_EVENTS_TO_BACKEND:
+        return
+
+    base_url = BACKEND_EVENT_URL.rsplit("/", 1)[0]
+    enroll_url = f"{base_url}/enroll-status"
+    update_url = f"{base_url}/enroll-update"
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+    def post_update(status: str, progress: int = 0, total: int = 40, message: Optional[str] = None):
+        try:
+            requests.post(update_url, json={
+                "status": status, "progress": progress,
+                "total": total, "message": message,
+            }, timeout=3)
+        except Exception:
+            pass
+
+    last_id = 0
+
+    while not _stop_event.is_set():
+        try:
+            resp = requests.get(enroll_url, timeout=3)
+            state = resp.json()
+        except Exception:
+            _stop_event.wait(3)
+            continue
+
+        if state.get("status") != "requested":
+            _stop_event.wait(2)
+            continue
+
+        name = state.get("name", "").strip()
+        if not name:
+            _stop_event.wait(2)
+            continue
+
+        print(f"[ENROLL] '{name}' için kayıt başladı")
+        import json as _json
+        from pathlib import Path as _Path
+        from vision.face_recognizer import train as _train
+
+        data_dir = _Path(FACE_DATA_PATH)
+        user_dir = data_dir / name
+        user_dir.mkdir(parents=True, exist_ok=True)
+
+        labels_path = data_dir / "labels.json"
+        if labels_path.exists():
+            with open(labels_path) as f:
+                labels = _json.load(f)
+        else:
+            labels = {}
+
+        label_id = next((int(k) for k, v in labels.items() if v == name), None)
+        if label_id is None:
+            label_id = (max(int(k) for k in labels) + 1) if labels else 0
+            labels[str(label_id)] = name
+
+        existing = len(list(user_dir.glob("*.jpg")))
+        saved = 0
+        total = 60
+        consecutive_miss = 0
+
+        post_update("capturing", 0, total, "Kameraya bakın...")
+
+        while saved < total and not _stop_event.is_set():
+            frame, last_id = frame_buffer.get_if_newer(last_id)
+            if frame is None:
+                time.sleep(0.05)
+                continue
+
+            gray = cv2.rotate(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), cv2.ROTATE_90_CLOCKWISE)
+            faces = cascade.detectMultiScale(gray, 1.1, 3, minSize=(40, 40))
+
+            if len(faces) == 0:
+                consecutive_miss += 1
+                if consecutive_miss % 20 == 0:
+                    post_update("capturing", saved, total, "Yüz bulunamadı, kameraya bakın...")
+                time.sleep(0.1)
+                continue
+
+            consecutive_miss = 0
+            x, y, w, h = max(faces, key=lambda r: r[2] * r[3])
+            roi = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
+            cv2.imwrite(str(user_dir / f"{existing + saved:04d}.jpg"), roi)
+            saved += 1
+            post_update("capturing", saved, total, f"Yüz kaydediliyor: {saved}/{total}")
+            time.sleep(0.1)
+
+        if saved < total:
+            post_update("error", saved, total, "Kayıt iptal edildi.")
+            print(f"[ENROLL] İptal — yalnızca {saved}/{total} kare kaydedildi")
+            continue
+
+        post_update("training", saved, total, "Model eğitiliyor...")
+        print("[ENROLL] Model eğitiliyor...")
+
+        with open(labels_path, "w") as f:
+            _json.dump(labels, f, ensure_ascii=False, indent=2)
+
+        try:
+            _train(str(data_dir))
+            post_update("done", total, total, f"'{name}' başarıyla kaydedildi!")
+            print(f"[ENROLL] ✓ '{name}' kaydedildi")
+        except Exception as exc:
+            post_update("error", 0, total, f"Eğitim hatası: {exc}")
+            print(f"[ENROLL] Eğitim hatası: {exc}")
 
 
 def _camera_loop(camera: IPCameraStream, frame_buffer: LatestFrameBuffer) -> None:
@@ -226,8 +446,11 @@ def _eye_loop(frame_buffer: LatestFrameBuffer) -> None:
         max_num_faces=1,
         refine_landmarks=True,
         min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
+        min_tracking_confidence=0.3,  # lower → tracking survives closed eyes
     ) as face_mesh:
+        no_face_frames = 0
+        NO_FACE_RESET_THRESHOLD = 6  # consecutive missed frames before reset
+
         while not _stop_event.is_set():
             if not _eye_enabled.is_set():
                 # Backend has eye source disabled — skip inference entirely so
@@ -235,6 +458,7 @@ def _eye_loop(frame_buffer: LatestFrameBuffer) -> None:
                 # state so we don't accumulate stale gaze/blink history while
                 # paused.
                 eye_detector.reset()
+                no_face_frames = 0
                 prev_time = time.time()
                 time.sleep(0.1)
                 continue
@@ -255,6 +479,7 @@ def _eye_loop(frame_buffer: LatestFrameBuffer) -> None:
             rgb.flags.writeable = True
 
             if face_results.multi_face_landmarks:
+                no_face_frames = 0
                 face_landmarks = face_results.multi_face_landmarks[0].landmark
                 eye_event = eye_detector.process_face_landmarks(
                     face_landmarks, FRAME_WIDTH, FRAME_HEIGHT, now, dt
@@ -262,7 +487,11 @@ def _eye_loop(frame_buffer: LatestFrameBuffer) -> None:
                 if eye_event is not None:
                     _forward_event(eye_event)
             else:
-                eye_detector.reset()
+                # Don't reset immediately — MediaPipe can miss a few frames
+                # during a blink. Only reset after sustained face loss.
+                no_face_frames += 1
+                if no_face_frames >= NO_FACE_RESET_THRESHOLD:
+                    eye_detector.reset()
 
             fps.tick()
 
@@ -340,6 +569,7 @@ def main():
     print(f"[CONFIG] Backend sending: {SEND_EVENTS_TO_BACKEND}")
     print(f"[CONFIG] Backend URL: {BACKEND_EVENT_URL}")
     print(f"[CONFIG] Hand invert swipe: {HAND_INVERT_SWIPE}")
+    print(f"[CONFIG] Face auth required: {FACE_AUTH_REQUIRED}")
 
     camera = IPCameraStream(IP_CAMERA_URL, FRAME_WIDTH, FRAME_HEIGHT)
     if not camera.open():
@@ -354,6 +584,8 @@ def main():
         threading.Thread(target=_camera_loop, args=(camera, frame_buffer), name="camera", daemon=True),
         threading.Thread(target=_eye_loop, args=(frame_buffer,), name="eye", daemon=True),
         threading.Thread(target=_hand_loop, args=(frame_buffer,), name="hand", daemon=True),
+        threading.Thread(target=_face_loop, args=(frame_buffer,), name="face", daemon=True),
+        threading.Thread(target=_enroll_loop, args=(frame_buffer,), name="enroll", daemon=True),
     ]
 
     forwarder: Optional[threading.Thread] = None

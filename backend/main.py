@@ -1,6 +1,8 @@
+import json
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from dotenv import load_dotenv
 
@@ -75,6 +77,30 @@ class ControlModeUpdateRequest(BaseModel):
     control_mode: str = Field(..., examples=["eye_only", "hand_only"])
 
 
+class FaceAuthRequest(BaseModel):
+    status: str = Field(..., examples=["authorized", "unauthorized"])
+    user: str | None = None
+    confidence: float | None = None
+
+
+class LightColorRequest(BaseModel):
+    hue: int | None = None
+    saturation: int | None = None
+    brightness: int = 80
+    color_temperature: int | None = None
+
+
+class EnrollRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=50)
+
+
+class EnrollUpdateRequest(BaseModel):
+    status: str  # "capturing" | "training" | "done" | "error"
+    progress: int = 0
+    total: int = 40
+    message: str | None = None
+
+
 # =========================
 # Controller
 # =========================
@@ -108,6 +134,8 @@ SUPPORTED_VISION_EVENTS = {
     "hand:swipe_right",
     "hand:pinch",
     "hand:open_palm_hold",
+    "hand:thumbs_up",
+    "hand:thumbs_down",
 }
 
 SUPPORTED_ACTIONS = {
@@ -149,6 +177,8 @@ mapping_store: dict[str, str] = {
     "hand:swipe_right": "NAV_RIGHT",
     "hand:pinch": "SELECT",
     "hand:open_palm_hold": "BACK",
+    "hand:thumbs_up": "NAV_RIGHT",
+    "hand:thumbs_down": "NAV_LEFT",
 }
 
 
@@ -175,6 +205,24 @@ system_state: dict[str, Any] = {
         "light": "off",
         "plug": "off",
     },
+
+    "face_auth": {
+        "status": "unknown",   # "authorized" | "unauthorized" | "unknown"
+        "user": None,
+        "confidence": None,
+        "updated_at": None,
+    },
+}
+
+FACE_DATA_PATH = Path(__file__).resolve().parent.parent / "pi" / "face_data"
+
+enroll_state: dict[str, Any] = {
+    "status": "idle",       # "idle" | "requested" | "capturing" | "training" | "done" | "error"
+    "name": None,
+    "progress": 0,
+    "total": 40,
+    "message": None,
+    "updated_at": None,
 }
 
 ui_state: dict[str, Any] = {
@@ -783,3 +831,130 @@ async def receive_vision_event(payload: VisionEventRequest) -> dict[str, Any]:
 @app.post("/event")
 async def deprecated_event_alias(payload: VisionEventRequest) -> dict[str, Any]:
     return await receive_vision_event(payload)
+
+
+@app.post("/devices/light/color")
+async def set_light_color(req: LightColorRequest) -> dict[str, Any]:
+    """Set bulb color/brightness directly from mobile dashboard."""
+    if not controller.bulb_host:
+        return {"ok": False, "reason": "Ampul yapılandırılmamış"}
+    try:
+        result = await controller._set_light_color(
+            controller.bulb_host,
+            req.hue, req.saturation, req.brightness, req.color_temperature,
+        )
+        system_state["device_status"]["light"] = "on"
+        return {"ok": True, **result}
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)}
+
+
+@app.post("/face-auth")
+async def update_face_auth(req: FaceAuthRequest) -> dict[str, Any]:
+    """Receive face recognition auth state from Pi vision pipeline."""
+    system_state["face_auth"].update({
+        "status": req.status,
+        "user": req.user,
+        "confidence": req.confidence,
+        "updated_at": _time.time(),
+    })
+    return {"ok": True, "status": req.status, "user": req.user}
+
+
+# =========================
+# Face Enrollment Endpoints
+# =========================
+
+@app.post("/enroll")
+async def start_enroll(req: EnrollRequest) -> dict[str, Any]:
+    """Mobile triggers face enrollment for a user."""
+    if enroll_state["status"] in ("requested", "capturing", "training"):
+        raise HTTPException(status_code=409, detail="Kayıt zaten devam ediyor.")
+    name = req.name.strip()
+    enroll_state.update({
+        "status": "requested",
+        "name": name,
+        "progress": 0,
+        "total": 40,
+        "message": "Pi'nin kamerasına bakın...",
+        "updated_at": _time.time(),
+    })
+    return {"ok": True, "name": name}
+
+
+@app.get("/enroll-status")
+async def get_enroll_status() -> dict[str, Any]:
+    """Polled by both Pi pipeline and mobile app."""
+    return dict(enroll_state)
+
+
+@app.post("/enroll-update")
+async def update_enroll(req: EnrollUpdateRequest) -> dict[str, Any]:
+    """Pi pipeline reports enrollment progress."""
+    enroll_state.update({
+        "status": req.status,
+        "progress": req.progress,
+        "total": req.total,
+        "message": req.message,
+        "updated_at": _time.time(),
+    })
+    # Auto-reset to idle 5 seconds after completion
+    if req.status in ("done", "error"):
+        enroll_state["name"] = enroll_state.get("name")  # keep name for display
+    return {"ok": True}
+
+
+@app.get("/users")
+async def list_users() -> dict[str, Any]:
+    """Return list of enrolled users from labels.json."""
+    labels_path = FACE_DATA_PATH / "labels.json"
+    if not labels_path.exists():
+        return {"users": []}
+    try:
+        with open(labels_path) as f:
+            labels: dict[str, str] = json.load(f)
+        return {"users": list(labels.values())}
+    except Exception:
+        return {"users": []}
+
+
+@app.delete("/users/{name}")
+async def delete_user(name: str) -> dict[str, Any]:
+    """Remove a user and retrain the model."""
+    import shutil, subprocess, sys
+    labels_path = FACE_DATA_PATH / "labels.json"
+    if not labels_path.exists():
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    with open(labels_path) as f:
+        labels: dict[str, str] = json.load(f)
+
+    label_id = next((k for k, v in labels.items() if v == name), None)
+    if label_id is None:
+        raise HTTPException(status_code=404, detail=f"'{name}' bulunamadı.")
+
+    del labels[label_id]
+    user_dir = FACE_DATA_PATH / name
+    if user_dir.exists():
+        shutil.rmtree(user_dir)
+
+    with open(labels_path, "w") as f:
+        json.dump(labels, f, ensure_ascii=False, indent=2)
+
+    # Retrain if remaining users exist, else delete model
+    model_path = FACE_DATA_PATH / "model.yml"
+    if labels:
+        recognizer_module = str(Path(__file__).resolve().parent.parent / "pi" / "src")
+        result = subprocess.run(
+            [sys.executable, "-c",
+             f"import sys; sys.path.insert(0,'{recognizer_module}'); "
+             f"from vision.face_recognizer import train; train('{FACE_DATA_PATH}')"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail="Model yeniden eğitilemedi.")
+    else:
+        if model_path.exists():
+            model_path.unlink()
+
+    return {"ok": True, "deleted": name, "remaining": list(labels.values())}

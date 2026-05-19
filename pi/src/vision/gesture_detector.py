@@ -81,6 +81,13 @@ class GestureDetector:
 
         if self.blink_closed:
             self.blink_min_ear = min(self.blink_min_ear, ear)
+            # Safety: if eyes stay "closed" longer than long_blink_max, the
+            # state machine is stuck (e.g. tracking lost mid-blink then resumed
+            # with eyes already open). Reset so next blink can be detected.
+            if now - self.blink_start_time > self.long_blink_max + 0.3:
+                self.blink_closed = False
+                self.close_streak = 0
+                self.open_streak = 0
 
         if self.blink_closed and self.open_streak >= self.open_frames_needed:
             duration = now - self.blink_start_time
@@ -162,6 +169,7 @@ class HandState:
     is_open_palm: bool
     is_pointing: bool
     timestamp: float
+    thumb_pose: Optional[str] = None  # "thumbs_up" | "thumbs_down" | None
 
 
 def _euclidean_distance(a, b) -> float:
@@ -188,6 +196,60 @@ def _fingers_extended(landmarks) -> dict:
         "ring": ring_tip.y < ring_pip.y,
         "pinky": pinky_tip.y < pinky_pip.y,
     }
+
+
+def _classify_thumb_pose(landmarks) -> Optional[str]:
+    """Detect thumbs up/down.
+
+    Finger-curl check uses distance from palm (rotation-invariant).
+    Direction check uses image x-axis: DroidCam raw frame has head on the LEFT,
+    so real-world UP = image LEFT = negative x.
+    """
+    wrist     = landmarks[0]
+    thumb_mcp = landmarks[2]
+    thumb_tip = landmarks[4]
+
+    hand_scale = math.sqrt((wrist.x - landmarks[9].x) ** 2 + (wrist.y - landmarks[9].y) ** 2)
+    if hand_scale < 1e-6:
+        return None
+
+    # Palm center (used as reference for finger curl check)
+    palm_x = (wrist.x + landmarks[5].x + landmarks[9].x + landmarks[13].x + landmarks[17].x) / 5
+    palm_y = (wrist.y + landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 5
+
+    # Non-thumb finger tips: must all be close to palm (curled)
+    # Using distance from palm — rotation-invariant unlike y-axis comparison
+    CURL_RATIO = 1.3  # tip must be within 1.3x hand_scale of palm
+    finger_tips = [8, 12, 16, 20]
+    curled = [
+        math.sqrt((landmarks[i].x - palm_x) ** 2 + (landmarks[i].y - palm_y) ** 2) / hand_scale
+        for i in finger_tips
+    ]
+    fingers_ok = all(d < CURL_RATIO for d in curled)
+
+    # Thumb tip must be far from palm (extended)
+    thumb_dist = math.sqrt((thumb_tip.x - palm_x) ** 2 + (thumb_tip.y - palm_y) ** 2) / hand_scale
+
+    if not fingers_ok or thumb_dist < 0.4:
+        return None
+
+    # Direction via image x-axis — camera-rotation-aware.
+    # DroidCam streams landscape from a portrait phone; enroll.py corrects it with
+    # ROTATE_90_CLOCKWISE, meaning the raw frame has the person's head on the LEFT
+    # (negative-x side). So: real-world UP = image LEFT = negative x.
+    tx = thumb_tip.x - thumb_mcp.x
+    ty = thumb_tip.y - thumb_mcp.y
+    t_mag = math.sqrt(tx * tx + ty * ty)
+    if t_mag < 1e-6:
+        return None
+
+    thumb_nx = tx / t_mag  # normalised x component of thumb direction
+
+    if thumb_nx > 0.4:    # thumb points RIGHT in image = UP in real world
+        return "thumbs_up"
+    if thumb_nx < -0.4:   # thumb points LEFT in image = DOWN in real world
+        return "thumbs_down"
+    return None
 
 
 class HandGestureDetector:
@@ -231,6 +293,11 @@ class HandGestureDetector:
         self.locked_swipe_x: Optional[float] = None
         self._debug_log_time: float = 0.0
 
+        # Thumbs up/down hold detection
+        self.thumbs_hold_seconds: float = 0.6
+        self._thumbs_held: Optional[str] = None   # current held pose name
+        self._thumbs_start_time: Optional[float] = None
+
     def process_hand_landmarks(self, hand_landmarks, now: Optional[float] = None):
         now = now or time.time()
         landmarks = hand_landmarks.landmark
@@ -259,6 +326,8 @@ class HandGestureDetector:
             and not finger_state["pinky"]
         )
 
+        thumb_pose = _classify_thumb_pose(hand_landmarks.landmark)
+
         state = HandState(
             center_x=center_x,
             center_y=center_y,
@@ -269,6 +338,7 @@ class HandGestureDetector:
             is_open_palm=is_open_palm,
             is_pointing=is_pointing,
             timestamp=now,
+            thumb_pose=thumb_pose,
         )
 
         self.history.append(state)
@@ -308,6 +378,8 @@ class HandGestureDetector:
         self.locked_event_name = None
         self.release_start_time = None
         self.locked_swipe_x = None
+        self._thumbs_held = None
+        self._thumbs_start_time = None
         # Don't reset last_swipe_time — the post-swipe block should survive a
         # brief loss of hand detection (user may briefly leave the frame while
         # retracting after a swipe, which is exactly when false pinch fires).
@@ -350,10 +422,13 @@ class HandGestureDetector:
         if not state.is_pinching:
             self.was_pinching = False
 
-        swipe_event = self._detect_pointing_swipe(state) or self._detect_freehand_swipe(state)
-        if swipe_event:
-            self.open_palm_start_time = None
-            return swipe_event
+        # Suppress swipe while a thumb pose is active — hand movement during
+        # thumbs up/down would otherwise fire phantom swipes.
+        if state.thumb_pose is None:
+            swipe_event = self._detect_pointing_swipe(state) or self._detect_freehand_swipe(state)
+            if swipe_event:
+                self.open_palm_start_time = None
+                return swipe_event
 
         if state.is_open_palm and not state.is_pinching and not state.is_pointing:
             if self.open_palm_start_time is None:
@@ -363,6 +438,19 @@ class HandGestureDetector:
                 return "open_palm_hold"
         else:
             self.open_palm_start_time = None
+
+        # Thumbs up / thumbs down: hold pose for thumbs_hold_seconds to fire.
+        if state.thumb_pose is not None:
+            if state.thumb_pose == self._thumbs_held and self._thumbs_start_time is not None:
+                if state.timestamp - self._thumbs_start_time >= self.thumbs_hold_seconds:
+                    self._thumbs_start_time = state.timestamp  # reset for repeat
+                    return state.thumb_pose
+            else:
+                self._thumbs_held = state.thumb_pose
+                self._thumbs_start_time = state.timestamp
+        else:
+            self._thumbs_held = None
+            self._thumbs_start_time = None
 
         return None
 
@@ -549,6 +637,9 @@ class HandGestureDetector:
 
         if self.locked_event_name == "open_palm_hold":
             return not state.is_open_palm
+
+        if self.locked_event_name in ("thumbs_up", "thumbs_down"):
+            return state.thumb_pose != self.locked_event_name
 
         if self.locked_event_name == "swipe_right":
             if self.locked_swipe_x is None:

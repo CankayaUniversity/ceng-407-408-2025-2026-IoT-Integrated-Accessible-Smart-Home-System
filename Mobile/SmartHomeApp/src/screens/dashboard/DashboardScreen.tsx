@@ -10,48 +10,45 @@ import { DashboardAccessible } from './DashboardAccessible';
 
 const TAB_ROUTES = ['DashboardTab', 'Climate', 'Security', 'SettingsTab'];
 
+const NAV_RIGHT_EVENTS = new Set(['swipe_left', 'thumbs_up']);
+const NAV_LEFT_EVENTS  = new Set(['swipe_right', 'thumbs_down']);
+
 export const DashboardScreen = () => {
   const { appMode, fetchBackendStatus, backendStatus } = useStore();
   const navigation = useNavigation<any>();
-  const lastEventRef = useRef<string | null>(null);
+  const lastTimestampRef = useRef<string | null>(null);
 
-  // Kick off an initial backend status fetch on mount
   useEffect(() => {
     fetchBackendStatus();
   }, []);
 
-  // Poll backend for updates (especially swipe events)
   useEffect(() => {
     const interval = setInterval(fetchBackendStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
-  // Handle swipe navigation in standard mode
+  // Handle gesture-based tab navigation
   useEffect(() => {
     if (appMode !== 'standard' || !backendStatus?.system_state?.last_vision_event) {
       return;
     }
 
     const event = backendStatus.system_state.last_vision_event;
-    const eventKey = `${event.source}:${event.name}`;
 
-    // Only process new events
-    if (lastEventRef.current === eventKey) {
+    // Deduplicate by timestamp so repeated gestures each fire once
+    if (lastTimestampRef.current === event.timestamp) {
       return;
     }
-    lastEventRef.current = eventKey;
+    lastTimestampRef.current = event.timestamp;
 
-    // Get current route
     const state = navigation.getState();
     const currentRouteName = state?.routes?.[state.index]?.name;
     const currentTabIndex = TAB_ROUTES.indexOf(currentRouteName);
 
-    if (event.name === 'swipe_left' && currentTabIndex < TAB_ROUTES.length - 1) {
-      const nextTab = TAB_ROUTES[currentTabIndex + 1];
-      navigation.navigate(nextTab);
-    } else if (event.name === 'swipe_right' && currentTabIndex > 0) {
-      const prevTab = TAB_ROUTES[currentTabIndex - 1];
-      navigation.navigate(prevTab);
+    if (NAV_RIGHT_EVENTS.has(event.name) && currentTabIndex < TAB_ROUTES.length - 1) {
+      navigation.navigate(TAB_ROUTES[currentTabIndex + 1]);
+    } else if (NAV_LEFT_EVENTS.has(event.name) && currentTabIndex > 0) {
+      navigation.navigate(TAB_ROUTES[currentTabIndex - 1]);
     }
   }, [appMode, backendStatus, navigation]);
 

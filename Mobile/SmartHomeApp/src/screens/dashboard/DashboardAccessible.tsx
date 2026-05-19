@@ -1,14 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Text, ActivityIndicator, Pressable, ScrollView, Animated } from 'react-native';
+import * as Speech from 'expo-speech';
 import { useStore } from '../../store/useStore';
 import { Card } from '../../components/common/Card';
 import { theme } from '../../theme';
-import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw, Hand } from 'lucide-react-native';
-import { Feedback, VisionEventName } from '../../types';
+import { Eye, Power, ArrowLeft, ArrowRight, Zap, RotateCcw, Hand, UserCheck, ShieldAlert, Clock } from 'lucide-react-native';
+import { Feedback, VisionEventName, FaceAuth } from '../../types';
 
 type FeedbackBanner = { message: string; severity: Feedback['severity'] };
+type AuthPopup = { status: 'authorized' | 'unauthorized'; user: string | null };
 
 const BANNER_DURATION_MS = 2500;
+const AUTH_POPUP_DURATION_MS = 3500;
 
 const SEVERITY_COLORS = (theme: any): Record<Feedback['severity'], string> => ({
   success: theme.colors.success,
@@ -29,9 +32,12 @@ export const DashboardAccessible = () => {
 
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [banner, setBanner] = useState<FeedbackBanner | null>(null);
+  const [authPopup, setAuthPopup] = useState<AuthPopup | null>(null);
 
   const bannerTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authPopupTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shownTimestamps = useRef(new Set<string>());
+  const prevFaceAuthStatus = useRef<FaceAuth['status'] | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -54,10 +60,35 @@ export const DashboardAccessible = () => {
     }
   }, [backendStatus?.system_state?.last_action?.timestamp]);
 
+  // Show auth popup when face recognition status changes
+  useEffect(() => {
+    const status = backendStatus?.system_state?.face_auth?.status;
+    if (!status || status === 'unknown') return;
+    if (status === prevFaceAuthStatus.current) return;
+    prevFaceAuthStatus.current = status;
+
+    const user = backendStatus?.system_state?.face_auth?.user ?? null;
+    showAuthPopup(status as 'authorized' | 'unauthorized', user);
+  }, [backendStatus?.system_state?.face_auth?.status]);
+
   const showBanner = (message: string, severity: Feedback['severity'] = 'success') => {
     if (bannerTimeout.current) clearTimeout(bannerTimeout.current);
     setBanner({ message, severity });
     bannerTimeout.current = setTimeout(() => setBanner(null), BANNER_DURATION_MS);
+  };
+
+  const showAuthPopup = (status: 'authorized' | 'unauthorized', user: string | null) => {
+    if (authPopupTimeout.current) clearTimeout(authPopupTimeout.current);
+    setAuthPopup({ status, user });
+    authPopupTimeout.current = setTimeout(() => setAuthPopup(null), AUTH_POPUP_DURATION_MS);
+
+    Speech.stop();
+    if (status === 'authorized') {
+      const name = user ? user.charAt(0).toUpperCase() + user.slice(1) : 'Kullanıcı';
+      Speech.speak(`Hoş geldin ${name}`, { language: 'tr' });
+    } else {
+      Speech.speak('Yetkisiz erişim', { language: 'tr' });
+    }
   };
 
   const handleTestEvent = async (source: string, name: string) => {
@@ -95,6 +126,7 @@ export const DashboardAccessible = () => {
   }
 
   const { ui_state, system_state } = backendStatus;
+  const faceAuth = system_state.face_auth;
 
   const eyeButtons: { event: VisionEventName; icon: React.ReactNode; label: string }[] = [
     { event: 'eye:look_left',   icon: <ArrowLeft  color={theme.colors.text.primary} size={28} />, label: 'Sol Bakış'    },
@@ -110,7 +142,7 @@ export const DashboardAccessible = () => {
     { event: 'hand:open_palm_hold',  icon: <Hand       color={theme.colors.text.primary} size={28} />, label: 'Açık Avuç'   },
   ];
 
-  // Animated banner control
+  // Animated banner control (bottom)
   const bannerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -121,6 +153,20 @@ export const DashboardAccessible = () => {
     }
   }, [banner, bannerAnim]);
 
+  // Animated auth popup control (top)
+  const authPopupAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (authPopup) {
+      Animated.spring(authPopupAnim, {
+        toValue: 1, useNativeDriver: true,
+        tension: 80, friction: 10,
+      }).start();
+    } else {
+      Animated.timing(authPopupAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    }
+  }, [authPopup, authPopupAnim]);
+
   return (
     <View style={styles.wrapper}>
       <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -128,6 +174,29 @@ export const DashboardAccessible = () => {
         <View style={styles.header}>
           <Eye size={28} color={theme.colors.primary} />
           <Text style={styles.title}>{ui_state.current_screen.replace(/_/g, ' ').toUpperCase()}</Text>
+          {faceAuth && (
+            <View style={[
+              styles.authBadge,
+              { backgroundColor:
+                  faceAuth.status === 'authorized' ? theme.colors.success + '22'
+                  : faceAuth.status === 'unauthorized' ? theme.colors.error + '22'
+                  : theme.colors.surfaceHighlight },
+            ]}>
+              <Text style={[
+                styles.authBadgeText,
+                { color:
+                    faceAuth.status === 'authorized' ? theme.colors.success
+                    : faceAuth.status === 'unauthorized' ? theme.colors.error
+                    : theme.colors.text.tertiary },
+              ]}>
+                {faceAuth.status === 'authorized'
+                  ? `● ${faceAuth.user ?? 'Yetkili'}`
+                  : faceAuth.status === 'unauthorized'
+                  ? '● Yetkisiz'
+                  : '○ Yüz Tanıma'}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Backend-Driven Menu Items */}
@@ -236,7 +305,7 @@ export const DashboardAccessible = () => {
         </View>
       </ScrollView>
 
-      {/* Feedback Banner */}
+      {/* Feedback Banner (bottom) */}
       <Animated.View
         pointerEvents={banner ? 'auto' : 'none'}
         style={[
@@ -253,6 +322,64 @@ export const DashboardAccessible = () => {
         ]}
       >
         {banner && <Text style={styles.bannerText}>{banner.message}</Text>}
+      </Animated.View>
+
+      {/* Face Auth Popup (top) */}
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.authPopup,
+          {
+            opacity: authPopupAnim,
+            transform: [
+              {
+                translateY: (authPopupAnim as any).interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-80, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        {authPopup && (
+          <View style={[
+            styles.authPopupInner,
+            {
+              borderColor: authPopup.status === 'authorized'
+                ? theme.colors.success
+                : theme.colors.error,
+            },
+          ]}>
+            <View style={[
+              styles.authPopupIcon,
+              {
+                backgroundColor: authPopup.status === 'authorized'
+                  ? theme.colors.success + '33'
+                  : theme.colors.error + '33',
+              },
+            ]}>
+              {authPopup.status === 'authorized'
+                ? <UserCheck size={28} color={theme.colors.success} />
+                : <ShieldAlert size={28} color={theme.colors.error} />}
+            </View>
+            <View style={styles.authPopupText}>
+              <Text style={[
+                styles.authPopupTitle,
+                { color: authPopup.status === 'authorized'
+                    ? theme.colors.success
+                    : theme.colors.error },
+              ]}>
+                {authPopup.status === 'authorized' ? 'Erişim İzni Verildi' : 'Erişim Engellendi'}
+              </Text>
+              <Text style={styles.authPopupSub}>
+                {authPopup.status === 'authorized'
+                  ? `Hoş geldin, ${authPopup.user ?? 'Kullanıcı'}! Komutlar aktif.`
+                  : 'Yetkisiz kullanıcı. Komutlar bloklandı.'}
+              </Text>
+            </View>
+          </View>
+        )}
       </Animated.View>
     </View>
   );
@@ -297,11 +424,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: theme.spacing.xl,
     paddingHorizontal: theme.spacing.sm,
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
   },
   title: {
     ...theme.typography.h1,
     color: theme.colors.text.primary,
     marginLeft: theme.spacing.md,
+    flex: 1,
+  },
+  authBadge: {
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: theme.radius.lg,
+  },
+  authBadgeText: {
+    ...theme.typography.caption,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   menuScrollOuter: {
     marginBottom: theme.spacing.xl,
@@ -453,6 +593,47 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     textAlign: 'center',
+  },
+  // Face auth popup (top)
+  authPopup: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+    right: 16,
+    zIndex: 100,
+  },
+  authPopupInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1.5,
+    paddingVertical: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.xl,
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 12,
+  },
+  authPopupIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  authPopupText: {
+    flex: 1,
+    gap: 4,
+  },
+  authPopupTitle: {
+    ...theme.typography.h3,
+    fontWeight: '700',
+  },
+  authPopupSub: {
+    ...theme.typography.caption,
+    color: theme.colors.text.secondary,
   },
 });
 

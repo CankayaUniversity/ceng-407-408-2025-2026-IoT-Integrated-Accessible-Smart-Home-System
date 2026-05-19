@@ -34,6 +34,13 @@ export interface BackendUIState {
   items: string[];
 }
 
+export interface FaceAuth {
+  status: 'authorized' | 'unauthorized' | 'unknown';
+  user: string | null;
+  confidence: number | null;
+  updated_at: number | null;
+}
+
 export interface BackendSystemState {
   last_vision_event: {
     type?: string;
@@ -58,6 +65,7 @@ export interface BackendSystemState {
     hardware_result?: any;
   } | null;
   device_status: Record<string, string>;
+  face_auth?: FaceAuth;
 }
 
 // ============================================================

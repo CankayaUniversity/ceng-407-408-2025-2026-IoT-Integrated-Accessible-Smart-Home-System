@@ -57,3 +57,13 @@ HAND_INVERT_SWIPE = _bool_env("HAND_INVERT_SWIPE", "false")
 HAND_MODEL_COMPLEXITY = int(os.getenv("HAND_MODEL_COMPLEXITY", "0"))
 HAND_MIN_DETECTION_CONFIDENCE = float(os.getenv("HAND_MIN_DETECTION_CONFIDENCE", "0.65"))
 HAND_MIN_TRACKING_CONFIDENCE = float(os.getenv("HAND_MIN_TRACKING_CONFIDENCE", "0.65"))
+
+# Face-based access control
+FACE_AUTH_REQUIRED = _bool_env("FACE_AUTH_REQUIRED", "false")
+FACE_RECOGNITION_INTERVAL = float(os.getenv("FACE_RECOGNITION_INTERVAL", "2.0"))
+FACE_AUTH_GRACE_PERIOD = float(os.getenv("FACE_AUTH_GRACE_PERIOD", "3.0"))
+FACE_DATA_PATH = os.getenv("FACE_DATA_PATH", str(Path(__file__).resolve().parent.parent / "face_data"))
+FACE_AUTH_URL = os.getenv(
+    "FACE_AUTH_URL",
+    BACKEND_EVENT_URL.rsplit("/", 1)[0] + "/face-auth",
+)
